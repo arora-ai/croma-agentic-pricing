@@ -1,11 +1,13 @@
 .venv
 .env
+.env.*
+.apim.env
 .git
 .github
 **/__pycache__
 **/node_modules
-agents
-ui
+**/dist
+ui/backend/data
 infra
 config
 integrations

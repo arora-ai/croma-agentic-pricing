@@ -1,4 +1,5 @@
 import type { ConvSummary, HubEvent, MemoryItem } from "./types";
+import { apiFetch } from "./auth";
 
 export interface StreamHandlers {
   onTurn: (d: { turn_id: string; conversation_id: string; turn: number; title: string; new: boolean }) => void;
@@ -13,7 +14,7 @@ export interface StreamHandlers {
 
 /** POSTs one chat turn and dispatches the server-sent events as they arrive. */
 export async function streamChat(message: string, conversationId: string | null, h: StreamHandlers, signal: AbortSignal): Promise<void> {
-  const res = await fetch("/api/chat", {
+  const res = await apiFetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, conversation_id: conversationId }),
@@ -52,7 +53,7 @@ export async function streamChat(message: string, conversationId: string | null,
 }
 
 export async function fetchCase(caseId: string): Promise<any | null> {
-  const res = await fetch(`/api/case/${caseId}`);
+  const res = await apiFetch(`/api/case/${caseId}`);
   return res.ok ? res.json() : null;
 }
 
@@ -60,7 +61,7 @@ export const reportUrl = (caseId: string, n: number, ext: "docx" | "html") => `/
 
 export async function fetchHealth(): Promise<{ hub: boolean; project: string; cx_agent: string; memory_scope: string; genie_backend?: string } | null> {
   try {
-    const res = await fetch("/api/health");
+    const res = await apiFetch("/api/health");
     return res.ok ? res.json() : null;
   } catch {
     return null;
@@ -72,17 +73,17 @@ async function json<T>(res: Response): Promise<T> {
   return res.json();
 }
 
-export const listConversations = () => fetch("/api/conversations").then((r) => json<ConvSummary[]>(r));
-export const getConversation = (id: string) => fetch(`/api/conversations/${id}`).then((r) => json<ConversationDetail>(r));
+export const listConversations = () => apiFetch("/api/conversations").then((r) => json<ConvSummary[]>(r));
+export const getConversation = (id: string) => apiFetch(`/api/conversations/${id}`).then((r) => json<ConversationDetail>(r));
 export const renameConversation = (id: string, title: string) =>
-  fetch(`/api/conversations/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) }).then((r) => json(r));
-export const deleteConversation = (id: string) => fetch(`/api/conversations/${id}`, { method: "DELETE" }).then((r) => json(r));
+  apiFetch(`/api/conversations/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) }).then((r) => json(r));
+export const deleteConversation = (id: string) => apiFetch(`/api/conversations/${id}`, { method: "DELETE" }).then((r) => json(r));
 
-export const listMemory = () => fetch("/api/memory").then((r) => json<MemoryItem[]>(r));
+export const listMemory = () => apiFetch("/api/memory").then((r) => json<MemoryItem[]>(r));
 export const addMemory = (content: string) =>
-  fetch("/api/memory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) }).then((r) => json<MemoryItem>(r));
-export const deleteMemory = (id: string) => fetch(`/api/memory/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) => json(r));
-export const clearMemory = () => fetch("/api/memory", { method: "DELETE" }).then((r) => json(r));
+  apiFetch("/api/memory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) }).then((r) => json<MemoryItem>(r));
+export const deleteMemory = (id: string) => apiFetch(`/api/memory/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) => json(r));
+export const clearMemory = () => apiFetch("/api/memory", { method: "DELETE" }).then((r) => json(r));
 
 export interface ConversationDetail extends ConvSummary {
   messages: { turn: number; role: "user" | "assistant"; text: string; status: "streaming" | "done" | "error"; seconds: number | null }[];
