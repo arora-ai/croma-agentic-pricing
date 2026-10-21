@@ -50,7 +50,7 @@ export function buildStages(events: HubEvent[]): StageRow[] {
   const rows = new Map<string, StageRow>();
   for (const e of events) {
     if (e.type === "stage_start") {
-      rows.set(e.id, { id: e.id, turn: e.turn, harness: e.harness ?? "", runId: e.run_id ?? "", stage: e.stage ?? "", start: e.ts });
+      rows.set(e.id, { id: e.id, turn: e.turn, harness: e.harness ?? "", runId: e.run_id ?? "", caseId: e.case_id || undefined, stage: e.stage ?? "", start: e.ts });
     } else if (e.type === "stage_end") {
       const r = rows.get(e.id);
       if (r) Object.assign(r, { end: e.ts, ok: e.ok, seconds: e.seconds, summary: e.summary });

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { buildCalls, buildStages, fmtSeconds, isReport } from "../lib";
 import type { State } from "../store";
 import { NODES, type Call, type Message, type StageRow } from "../types";
+import { HarnessBrief } from "./HarnessBrief";
 import { HarnessProgress } from "./HarnessProgress";
 import { Markdown } from "./Markdown";
 import { ReportCard, ReportProgress, isReportRun } from "./ReportCard";
@@ -78,6 +79,7 @@ function Bubble({ m, calls, stages, running }: { m: Message; calls: Call[]; stag
         {m.status === "streaming" && stages.length > 0 && <HarnessProgress stages={stages} />}
         {m.text && (m.status === "error" ? <div className="error-note">{m.text}</div> : <>{report && <ReportActions text={m.text} />}<Markdown>{m.text}</Markdown></>)}
         {published && <ReportCard caseId={published.caseId!} n={published.detail?.result?.report_number} />}
+        {m.status === "done" && stages.length > 0 && <HarnessBrief stages={stages} />}
         {m.status === "streaming" && m.text && running && <span className="caret" />}
         {m.status === "done" && m.seconds !== undefined && (
           <div className="meta">

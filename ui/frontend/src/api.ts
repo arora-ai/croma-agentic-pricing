@@ -56,6 +56,20 @@ export async function fetchCase(caseId: string): Promise<any | null> {
   return res.ok ? res.json() : null;
 }
 
+export interface HarnessRun {
+  id: string;
+  harness: string;
+  status: string;
+  error: string;
+  markdown: string | null;
+  stages: { name: string; status: string; seconds: number | null; summary: string }[];
+}
+
+export async function fetchRuns(caseId: string): Promise<HarnessRun[]> {
+  const res = await fetch(`/api/runs/${caseId}`);
+  return res.ok ? res.json() : [];
+}
+
 export const reportUrl = (caseId: string, n: number, ext: "docx" | "html") => `/api/report/${caseId}/${n}/${ext}`;
 
 export async function fetchHealth(): Promise<{ hub: boolean; project: string; cx_agent: string; memory_scope: string; genie_backend?: string } | null> {

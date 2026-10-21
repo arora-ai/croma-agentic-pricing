@@ -38,8 +38,10 @@ def load_env() -> dict[str, str]:
 
 
 def project() -> AIProjectClient:
-    """az login on a laptop; the managed identity of the container when deployed."""
-    return AIProjectClient(endpoint=load_env()["FOUNDRY_PROJECT_ENDPOINT"], credential=DefaultAzureCredential(exclude_interactive_browser_credential=True))
+    """az login on a laptop; the managed identity of the container when deployed. The generous process timeout is for a busy laptop, where asking the Azure CLI
+    for a token can take longer than the default ten seconds."""
+    credential = DefaultAzureCredential(exclude_interactive_browser_credential=True, process_timeout=90)
+    return AIProjectClient(endpoint=load_env()["FOUNDRY_PROJECT_ENDPOINT"], credential=credential)
 
 
 def main() -> None:

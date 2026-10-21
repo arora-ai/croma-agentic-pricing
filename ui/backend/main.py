@@ -109,6 +109,20 @@ async def case(case_id: str):
     return r.json()
 
 
+@app.get("/api/runs/{case_id}")
+async def runs(case_id: str):
+    """The Analysis and Research runs on a case: the finished brief and the stages each run went through (the hub key stays on the server)."""
+    if not re.fullmatch(r"[\w-]+", case_id):
+        raise HTTPException(404, "Unknown case")
+    async with httpx.AsyncClient(timeout=15) as http:
+        r = await http.get(f"{_env()['HUB_URL']}/runs/{case_id}", headers=_hub_headers())
+    if r.status_code != 200:
+        raise HTTPException(r.status_code, "Runs not found")
+    return [{"id": x["id"], "harness": x["harness"], "status": x["status"], "error": x["error"], "markdown": (x.get("result") or {}).get("markdown"),
+             "stages": [{"name": s["name"], "status": s["status"], "seconds": round((s["ended"] or 0) - (s["started"] or 0), 1) if s["started"] and s["ended"] else None,
+                         "summary": s["summary"]} for s in x["stages"]]} for x in r.json()]
+
+
 @app.get("/api/report/{case_id}/{n}/{ext}")
 async def report_file(case_id: str, n: int, ext: str):
     """Streams a published report (DOCX or HTML) from the hub; the hub key stays on the server."""

@@ -97,6 +97,7 @@ export interface StageRow {
   turn: number;
   harness: string;
   runId: string;
+  caseId?: string;
   stage: string;
   start: number;
   end?: number;
