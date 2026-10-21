@@ -20,9 +20,25 @@ $Cfg.FoundryScope = "/subscriptions/$($Cfg.Subscription)/resourceGroups/$($Cfg.R
 #            "stub"        no data source; every question answers "not configured" (the default while you set things up)
 $Cfg.Genie = @{
     Backend         = "stub"
-    DatabricksHost  = ""        # https://adb-<workspace-id>.<n>.azuredatabricks.net
+    DatabricksHost  = ""        # https://adb-<workspace-id>.<n>.azuredatabricks.net   (with AuthMode = "apim": the data gateway's URL, APIM_DATA_URL in .apim.env)
     SpaceId         = ""        # the Genie space id (the long id in the space's URL)
-    AuthMode        = "managed_identity"   # managed_identity | token  (token reads $env:DATABRICKS_TOKEN at deploy time and stores it as a container app secret)
+    AuthMode        = "managed_identity"   # managed_identity | token | apim
+                                           #   token  reads $env:DATABRICKS_TOKEN at deploy time and stores it as a container app secret
+                                           #   apim   the hub calls Databricks through the Azure API Management data gateway; its subscription key is read from
+                                           #          $env:APIM_SUBSCRIPTION_KEY or APIM_DATA_KEY in .apim.env at deploy time and stored as a container app secret
     CustomBackend   = ""
     ToolDescription = ""        # one or two sentences telling the Data agent what this data space covers (optional but worth writing)
 }
+
+# Optional: Azure API Management in front of the system (infra/apim, docs/APIM.md). Leave this out to run without it.
+# When GatewayUrl is set, infra/create_hub_connection.ps1 points the four Foundry project connections at the tool gateway and stores the APIM subscription key
+# in them instead of the hub key (the hub key then lives only in APIM). Without it the connections point straight at the hub, as before.
+# $Cfg.Apim = @{
+#     GatewayUrl         = "https://<apim name>.azure-api.net/tools"   # APIM_TOOLS_URL in .apim.env, written by infra/apim/deploy_apim.ps1
+#     SubscriptionKeyEnv = "APIM_TOOLS_KEY"                            # the environment variable (or the .apim.env entry) that holds the tool gateway's subscription key
+#     # Used by infra/apim/deploy_apim.ps1, all optional:
+#     ResourceGroup      = "rg-croma-v2"                               # a separate resource group, so one command removes the whole gateway
+#     Name               = "apim-croma2"                               # globally unique: <name>.azure-api.net
+#     Location           = "eastus2"                                   # default: the region of the Container Apps environment
+#     ChatApp            = "croma-chat-v2"                             # the container app that runs the chat API behind the front gateway
+# }

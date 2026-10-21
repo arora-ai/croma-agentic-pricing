@@ -1,0 +1,24 @@
+<!--
+  Operation policy for the web app's own files (GET / and GET /assets/*). The page has to load before anybody has signed in, so this deliberately does
+  not call <base /> in inbound: no token or key is required, and the gateway key is not sent (the chat API serves these files without it).
+  The only protection here is a rate limit per client address.
+-->
+<policies>
+  <inbound>
+    <rate-limit-by-key calls="__STATIC_CALLS__" renewal-period="60" counter-key="@("static:" + context.Request.IpAddress)" />
+    <set-header name="x-user-id" exists-action="delete" />
+    <set-header name="x-user-name" exists-action="delete" />
+    <set-header name="x-gateway-key" exists-action="delete" />
+    <set-header name="Authorization" exists-action="delete" />
+    <set-backend-service backend-id="chat-backend" />
+  </inbound>
+  <backend>
+    <forward-request timeout="30" />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

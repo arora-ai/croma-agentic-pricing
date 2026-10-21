@@ -1,0 +1,49 @@
+<!--
+  DATA TOOL GATEWAY: the hub's Databricks Genie backend -> APIM -> Azure Databricks REST API.
+  The hub sends the APIM subscription key in Ocp-Apim-Subscription-Key (DATABRICKS_AUTH=apim) and no Authorization header. APIM signs in to Databricks
+  with its own managed identity, so no Databricks credential exists outside APIM and the identity can be given exactly the access it needs.
+
+    1. Rate limit per subscription (the hub polls a running question about every 1.5 seconds, so the overall limit is generous; starting new
+       questions has a stricter limit, see the operation policy).
+    2. Only the one configured Genie space (named value genie-space-id) can be reached; any other space id gets a 403 here.
+    3. Gets a Microsoft Entra token for Azure Databricks (resource 2ff814a6-3304-4ab8-85cb-cd0e6f879c1d) for the managed identity of this APIM instance and sends it
+       as the Authorization header. The APIM subscription key is not forwarded.
+  Only the three Genie calls the hub's backend makes exist as operations; every other Databricks route gets a 404 from APIM.
+-->
+<policies>
+  <inbound>
+    <base />
+    <rate-limit-by-key calls="__DATA_CALLS__" renewal-period="60" counter-key="@("data:" + context.Subscription.Id)" remaining-calls-header-name="x-ratelimit-remaining" />
+    <choose>
+      <when condition="@(context.Request.MatchedParameters.GetValueOrDefault("space_id", "") != "{{genie-space-id}}")">
+        <return-response>
+          <set-status code="403" reason="Forbidden" />
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-body>{"error":"forbidden","detail":"This gateway only serves the configured Genie space."}</set-body>
+        </return-response>
+      </when>
+    </choose>
+    <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+    <set-header name="x-correlation-id" exists-action="override">
+      <value>@(context.RequestId.ToString())</value>
+    </set-header>
+    <authentication-managed-identity resource="2ff814a6-3304-4ab8-85cb-cd0e6f879c1d" ignore-error="false" />
+    <trace source="data-gateway" severity="information">
+      <message>@(context.Request.Method + " " + context.Operation.UrlTemplate)</message>
+      <metadata name="operation" value="@(context.Operation.Name)" />
+      <metadata name="subscription" value="@(context.Subscription.Id)" />
+    </trace>
+    <set-backend-service backend-id="databricks-backend" />
+  </inbound>
+  <backend>
+    <forward-request timeout="60" buffer-response="false" fail-on-error-status-code="false" />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

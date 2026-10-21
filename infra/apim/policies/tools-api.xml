@@ -1,0 +1,66 @@
+<!--
+  TOOL GATEWAY: Foundry agents -> APIM -> the tools hub (MCP servers at /genie/mcp, /agents/mcp, /context/mcp, /studio/mcp).
+  Foundry holds an APIM subscription key in its project connection (a Custom Keys connection that sends it as the header x-api-key, which is this API's
+  subscription key header). APIM has validated that key before this policy runs. The hub's own API key lives only in the named value hub-api-key.
+
+    1. Rate limit per subscription.
+    2. Reads the JSON-RPC method and the tool name from the REQUEST body (preserveContent keeps the body for the backend) and records them as a trace with
+       custom dimensions, so Application Insights can show calls per tool. The response body is never read: that would buffer it.
+    3. Replaces x-api-key (the APIM subscription key) with the hub's key.
+    4. Forwards to the hub with a 120 second timeout (Foundry cuts a tool call at 100 seconds anyway).
+  Only the four MCP paths exist as operations; the hub's other routes (/state, /trace, /events, /runs, /case, /report) get a 404 from APIM.
+-->
+<policies>
+  <inbound>
+    <base />
+    <rate-limit-by-key calls="__TOOLS_CALLS__" renewal-period="60" counter-key="@("tools:" + context.Subscription.Id)" remaining-calls-header-name="x-ratelimit-remaining" />
+    <set-variable name="mcp-call" value="@{
+      string method = "", tool = "";
+      try {
+        var body = context.Request.Body;
+        if (body != null) {
+          var parsed = body.As<JToken>(preserveContent: true);
+          var call = (parsed is JArray ? ((JArray)parsed).FirstOrDefault() : parsed) as JObject;
+          if (call != null) {
+            method = (string)call["method"] ?? "";
+            var parameters = call["params"] as JObject;
+            if (method == "tools/call" && parameters != null) { tool = (string)parameters["name"] ?? ""; }
+          }
+        }
+      } catch (Exception) { }
+      // A trace metadata value must not be empty (an empty one makes the gateway fail the call), so a missing method or tool is recorded as "-".
+      return (method.Length > 0 ? method : "-") + "|" + (tool.Length > 0 ? tool : "-");
+    }" />
+    <trace source="tool-gateway" severity="information">
+      <message>@(context.Request.Method + " " + context.Request.Url.Path + " " + (string)context.Variables["mcp-call"])</message>
+      <metadata name="mcp_method" value="@(((string)context.Variables["mcp-call"]).Split('|')[0])" />
+      <metadata name="mcp_tool" value="@(((string)context.Variables["mcp-call"]).Split('|')[1])" />
+      <metadata name="mcp_endpoint" value="@(context.Request.Url.Path)" />
+      <metadata name="subscription" value="@(context.Subscription.Id)" />
+    </trace>
+    <set-header name="x-correlation-id" exists-action="override">
+      <value>@(context.RequestId.ToString())</value>
+    </set-header>
+    <set-header name="x-api-key" exists-action="override">
+      <value>{{hub-api-key}}</value>
+    </set-header>
+    <set-backend-service backend-id="hub-backend" />
+  </inbound>
+  <backend>
+    <forward-request timeout="120" buffer-response="false" fail-on-error-status-code="false" />
+  </backend>
+  <outbound>
+    <base />
+    <!-- The hub redirects /genie/mcp/ to its own address. Keep the client on the gateway: make the Location a path under this API. -->
+    <choose>
+      <when condition="@(context.Response.StatusCode / 100 == 3 && context.Response.Headers.ContainsKey("Location"))">
+        <set-header name="Location" exists-action="override">
+          <value>@(System.Text.RegularExpressions.Regex.Replace(context.Response.Headers.GetValueOrDefault("Location", ""), "^https?://[^/]+", context.Api.Path.TrimEnd('/')))</value>
+        </set-header>
+      </when>
+    </choose>
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

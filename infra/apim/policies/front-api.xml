@@ -1,0 +1,160 @@
+<!--
+  FRONT GATEWAY: browsers and channels (Teams, a scheduler, a test client) -> APIM -> chat API (Container App) -> Foundry CX agent.
+  This is the API-level policy of the chat API; it applies to every operation unless the operation overrides it (the static files of the web app do).
+
+  What it does, in order:
+    1. CORS (so a web app served from another origin can call the API).
+    2. Deletes any x-user-id, x-user-name and x-gateway-key the client sent. The chat API believes those headers, so only this policy may set them.
+    3. Correlation id: keeps a well-formed client x-correlation-id, otherwise generates one; it goes to the chat API and back to the client.
+    4. Authenticates the caller. Either an Entra ID access token (when the switch named value jwt-enabled is "true") or an APIM subscription key.
+       The user id for the chat API is the token's oid claim, or "sub-<subscription id>" for a subscription key.
+    5. Rate limit per user (and a stricter one on POST /api/chat, see the operation policy).
+    6. Tells the chat API who is calling (x-user-id, x-user-name) with the shared secret (x-gateway-key). Drops the caller's own credentials.
+    7. Writes a trace with the user id as a custom dimension (Application Insights table "traces").
+    8. Forwards to the chat API WITHOUT buffering the response, so Server-Sent Events reach the browser as they are produced.
+
+  Rules for this API: never read context.Response.Body (it buffers the whole response and breaks streaming); never log request or response bodies.
+-->
+<policies>
+  <inbound>
+    <base />
+    <cors allow-credentials="false">
+      <allowed-origins>
+        __CORS_ORIGINS__
+      </allowed-origins>
+      <allowed-methods preflight-result-max-age="300">
+        <method>GET</method>
+        <method>POST</method>
+        <method>PATCH</method>
+        <method>DELETE</method>
+        <method>OPTIONS</method>
+      </allowed-methods>
+      <allowed-headers>
+        <header>authorization</header>
+        <header>content-type</header>
+        <header>accept</header>
+        <header>ocp-apim-subscription-key</header>
+        <header>x-correlation-id</header>
+      </allowed-headers>
+      <expose-headers>
+        <header>x-correlation-id</header>
+        <header>retry-after</header>
+      </expose-headers>
+    </cors>
+    <set-header name="x-user-id" exists-action="delete" />
+    <set-header name="x-user-name" exists-action="delete" />
+    <set-header name="x-gateway-key" exists-action="delete" />
+    <set-variable name="correlation-id" value="@{
+      var supplied = context.Request.Headers.GetValueOrDefault("x-correlation-id", "");
+      return System.Text.RegularExpressions.Regex.IsMatch(supplied, "^[A-Za-z0-9._-]{8,64}$") ? supplied : context.RequestId.ToString();
+    }" />
+    <set-header name="x-correlation-id" exists-action="override">
+      <value>@((string)context.Variables["correlation-id"])</value>
+    </set-header>
+    <choose>
+      <when condition="@("{{jwt-enabled}}" == "true" && context.Request.Headers.GetValueOrDefault("Authorization", "").StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))">
+        <validate-jwt header-name="Authorization" require-scheme="Bearer" require-expiration-time="true" require-signed-tokens="true" clock-skew="60" failed-validation-httpcode="401" failed-validation-error-message="Invalid or expired access token." output-token-variable-name="jwt">
+          <openid-config url="https://login.microsoftonline.com/{{entra-tenant-id}}/v2.0/.well-known/openid-configuration" />
+          <audiences>
+            <audience>{{entra-audience}}</audience>
+            <audience>{{entra-audience-alt}}</audience>
+          </audiences>
+          <issuers>
+            <issuer>https://login.microsoftonline.com/{{entra-tenant-id}}/v2.0</issuer>
+            <issuer>https://sts.windows.net/{{entra-tenant-id}}/</issuer>
+          </issuers>
+          <required-claims>
+            <claim name="tid" match="all">
+              <value>{{entra-tenant-id}}</value>
+            </claim>
+          </required-claims>
+        </validate-jwt>
+        <set-variable name="user-id" value="@{
+          var jwt = (Jwt)context.Variables["jwt"];
+          string[] oid;
+          return jwt.Claims.TryGetValue("oid", out oid) && oid.Length > 0 ? oid[0] : "";
+        }" />
+        <set-variable name="user-name" value="@{
+          var jwt = (Jwt)context.Variables["jwt"];
+          foreach (var claim in new[] { "preferred_username", "upn", "unique_name", "name" }) {
+            string[] found;
+            if (jwt.Claims.TryGetValue(claim, out found) && found.Length > 0) { return found[0]; }
+          }
+          return "";
+        }" />
+        <set-variable name="auth-mode" value="jwt" />
+      </when>
+      <when condition="@(context.Subscription != null)">
+        <set-variable name="user-id" value="@("sub-" + context.Subscription.Id)" />
+        <set-variable name="user-name" value="@(context.Subscription.Name)" />
+        <set-variable name="auth-mode" value="subscription-key" />
+      </when>
+      <otherwise>
+        <return-response>
+          <set-status code="401" reason="Unauthorized" />
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-header name="WWW-Authenticate" exists-action="override">
+            <value>Bearer realm="croma"</value>
+          </set-header>
+          <set-header name="x-correlation-id" exists-action="override">
+            <value>@((string)context.Variables["correlation-id"])</value>
+          </set-header>
+          <set-body>{"error":"unauthorized","detail":"Send an Entra ID access token (Authorization: Bearer) or an APIM subscription key (Ocp-Apim-Subscription-Key)."}</set-body>
+        </return-response>
+      </otherwise>
+    </choose>
+    <choose>
+      <when condition="@(string.IsNullOrEmpty((string)context.Variables["user-id"]))">
+        <return-response>
+          <set-status code="401" reason="Unauthorized" />
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-body>{"error":"unauthorized","detail":"The access token has no oid claim, so the caller cannot be identified."}</set-body>
+        </return-response>
+      </when>
+    </choose>
+    <rate-limit-by-key calls="__API_CALLS__" renewal-period="60" counter-key="@("front:" + (string)context.Variables["user-id"])" remaining-calls-header-name="x-ratelimit-remaining" />
+    <set-header name="x-user-id" exists-action="override">
+      <value>@((string)context.Variables["user-id"])</value>
+    </set-header>
+    <set-header name="x-user-name" exists-action="override">
+      <value>@((string)context.Variables["user-name"])</value>
+    </set-header>
+    <set-header name="x-gateway-key" exists-action="override">
+      <value>{{gateway-key}}</value>
+    </set-header>
+    <set-header name="Authorization" exists-action="delete" />
+    <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+    <trace source="front-gateway" severity="information">
+      <message>@(context.Request.Method + " " + context.Operation.UrlTemplate)</message>
+      <metadata name="user_id" value="@((string)context.Variables["user-id"])" />
+      <metadata name="auth_mode" value="@((string)context.Variables["auth-mode"])" />
+      <metadata name="correlation_id" value="@((string)context.Variables["correlation-id"])" />
+    </trace>
+    <set-backend-service backend-id="chat-backend" />
+  </inbound>
+  <backend>
+    <forward-request timeout="__TIMEOUT__" buffer-response="false" fail-on-error-status-code="false" />
+  </backend>
+  <outbound>
+    <base />
+    <!-- The web app's files skip the inbound part above, so the variable may not exist here: fall back to the request id. -->
+    <set-header name="x-correlation-id" exists-action="override">
+      <value>@(context.Variables.GetValueOrDefault<string>("correlation-id", context.RequestId.ToString()))</value>
+    </set-header>
+    <!-- A redirect from the chat API (for example a trailing slash) names the container's own address. Keep the client on the gateway: make it a path. -->
+    <choose>
+      <when condition="@(context.Response.StatusCode / 100 == 3 && context.Response.Headers.ContainsKey("Location"))">
+        <set-header name="Location" exists-action="override">
+          <value>@(System.Text.RegularExpressions.Regex.Replace(context.Response.Headers.GetValueOrDefault("Location", ""), "^https?://[^/]+", ""))</value>
+        </set-header>
+      </when>
+    </choose>
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>
