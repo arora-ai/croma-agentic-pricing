@@ -205,7 +205,7 @@ sequenceDiagram
 
 ## 3. Design points this diagram commits us to
 
-1. **Two controlled doors.** Traffic from users and channels enters through the front gateway. Every data question goes agent, then Data agent, then the data tool gateway, then Genie. That is where limits, audit, caching and sanity checks sit.
+1. **Two controlled doors.** Traffic from users and channels enters through the front gateway. Every data question goes agent, then Data agent, then the data tool gateway, then Genie. That is where limits, audit, caching and sanity checks sit. Both gateways are built as Azure API Management (optional, with a third gateway for the agents' tool calls to the hub): see [`APIM.md`](APIM.md).
 2. **Genie stays thin.** The pricing model and optimiser run as Databricks jobs and publish tables. Genie only reads.
 3. **Routing, not a script.** The CX agent hands over a confirmed request, and the post agents decide their own next steps.
 4. **User identity travels with the call**, so Unity Catalog can apply the right row and column access for that person.

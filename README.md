@@ -43,10 +43,10 @@ The full target architecture (including later phases such as API gateways, Teams
 | `hub/` | The tools hub, one container with four MCP servers: data tool, agent bridge, case context, report studio. `hub/backends/` holds the data backends |
 | `hub/studio/` | The report studio: ledger, calc, audit, renderers, `playbook.md` (what a good report is) |
 | `integrations/genie/` | How to connect your Genie space or data agent, an example custom backend, and `try_question.py` |
-| `infra/` | PowerShell deploy scripts and `config.example.ps1` |
-| `ui/` | The chat UI: FastAPI backend and React front end, with an admin pane (agent network, telemetry, case file, memory) |
+| `infra/` | PowerShell deploy scripts and `config.example.ps1`. `infra/apim/` is the optional Azure API Management layer (Bicep, policies, deploy, test and teardown scripts) |
+| `ui/` | The chat UI: FastAPI backend and React front end, with an admin pane (agent network, telemetry, case file, memory). `ui/Dockerfile` runs it as a container app |
 | `tests/` | Unit tests (no Azure needed) and small tools for testing a live deployment |
-| `docs/` | `DEPLOYMENT.md` (the step-by-step deployment runbook) and architecture diagrams |
+| `docs/` | `DEPLOYMENT.md` (the step-by-step deployment runbook), `APIM.md` (the three API gateways) and architecture diagrams |
 
 ## Prerequisites
 
@@ -140,6 +140,8 @@ then **review** (independent critique, with repair rounds) then **publish** (DOC
 
 - No secret is in this repository. `.env`, `infra/config.ps1` and `config/data_profile.json` are git-ignored; check before every commit that you have not added one.
 - The hub is protected by an API key held in Foundry project connections (not in agent definitions). The hub itself signs in to Foundry and Databricks with its managed identity.
+  With the optional API gateways ([`docs/APIM.md`](docs/APIM.md)) the hub key lives only in Azure API Management, the Foundry connections hold a revocable subscription key, the
+  chat API accepts a user identity only from the gateway, and Databricks is reached with APIM's own identity.
   `DATABRICKS_AUTH=token` (a personal access token) is for quick tests only and is stored as a container app secret.
 - Data calls run as the hub's identity, not as the signed-in user, so row and column security applies to that identity. Per-user pass-through is not built.
 - The UI keeps chat history in a local SQLite file (`ui/backend/data/`, git-ignored). It contains real conversations: do not commit or share it.
@@ -147,8 +149,8 @@ then **review** (independent critique, with repair rounds) then **publish** (DOC
 
 ## Known limits
 
-- Single replica, in-memory case state; single user (memory scope `croma-user-1`); chat history in local SQLite.
-- No API gateways, no user identity pass-through, no Teams channel, no scheduled nudges, no automated evaluations yet.
+- Single replica, in-memory case state; chat history in local SQLite. Without the API gateway the UI is single user (memory scope `croma-user-1`); behind it, history and memory are per signed-in user ([`docs/APIM.md`](docs/APIM.md)).
+- API gateways (Azure API Management in front of the chat API, the hub's MCP endpoints and Databricks) are optional and in [`docs/APIM.md`](docs/APIM.md). Data calls still run as the hub's identity, not the signed-in user. No Teams channel, no scheduled nudges, no automated evaluations yet.
 - Natural-language-to-SQL can vary between runs: keep the Genie space's instructions and example queries strong, and add an example whenever a question type proves unstable.
 - The report pipeline's stage order is decided by the Editor agent following its prompt. Making it a code-driven state machine with LLM workers is the recommended next step for speed and reliability.
 
