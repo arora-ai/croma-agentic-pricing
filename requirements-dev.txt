@@ -1,0 +1,5 @@
+# Everything needed to develop and test locally: the hub, the agents, the UI backend, and the test tools.
+-r requirements.txt
+-r ui/requirements.txt
+pytest>=8
+pymupdf>=1.24   # only for tests/docx_to_png.py (renders a DOCX to page images through Word, for visual checks on Windows)

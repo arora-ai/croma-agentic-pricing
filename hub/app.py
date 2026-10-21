@@ -1,0 +1,109 @@
+"""Tools hub: one container exposing four MCP servers (data tool, agent bridge, case context, report studio) behind an API-key check.
+    /genie/mcp     the data tool: hands questions to the configured backend (Databricks Genie, your own function, or a stub)
+    /agents/mcp    agent-to-agent calls
+    /context/mcp   shared case context
+    /studio/mcp    the report studio: evidence ledger, calculations, audit, renderer
+    /trace         recent agent-to-agent calls (for test runs);  /case/<id>  the case as saved;  /healthz  open
+    /report/<case>/<n>.docx|.html  published reports;  /state/<case>  export a case, POST /state to restore it
+"""
+from __future__ import annotations
+
+import contextlib
+import hmac
+import logging
+import re
+from urllib.parse import quote
+
+import uvicorn
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
+from starlette.routing import Mount, Route
+
+import agent_bridge
+import case_context
+import events as live_events
+import genie_gateway
+from settings import API_KEY, GENIE_BACKEND
+from studio import server as studio_server
+
+logging.basicConfig(level=logging.WARNING)
+SERVERS = [genie_gateway.mcp, agent_bridge.mcp, case_context.mcp, studio_server.mcp]
+
+
+@contextlib.asynccontextmanager
+async def lifespan(_app):
+    async with contextlib.AsyncExitStack() as stack:
+        for server in SERVERS:
+            await stack.enter_async_context(server.session_manager.run())
+        yield
+
+
+async def healthz(_request: Request):
+    return JSONResponse({"status": "ok", "genie_tool": genie_gateway.TOOL_NAME, "genie_backend": GENIE_BACKEND})
+
+
+async def trace(request: Request):
+    case_id = request.query_params.get("case_id")
+    rows = [t for t in agent_bridge.trace if not case_id or t["case_id"] == case_id]
+    return JSONResponse(rows)
+
+
+async def events(request: Request):
+    return JSONResponse(live_events.since(int(request.query_params.get("since", "0"))))
+
+
+async def case(request: Request):
+    data = case_context.snapshot(request.path_params["case_id"])
+    return JSONResponse(data or {"error": "unknown case"}, status_code=200 if data else 404)
+
+
+async def report_file(request: Request):
+    case_id, n, ext = request.path_params["case_id"], int(request.path_params["n"]), request.path_params["ext"]
+    art = studio_server.artifact(case_id, n)
+    if not art or ext not in ("docx", "html"):
+        return JSONResponse({"error": "unknown report"}, status_code=404)
+    if ext == "html":
+        return Response(art["html"], media_type="text/html; charset=utf-8")
+    name = re.sub(r"[^A-Za-z0-9 ._-]+", "-", art["title"])[:60].strip() or "report"
+    return Response(art["docx"], media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition": f"attachment; filename=\"{name}.docx\"; filename*=UTF-8''{quote(art['title'][:80])}.docx"})
+
+
+async def state_export(request: Request):
+    return JSONResponse(studio_server.export_state(request.path_params["case_id"]))
+
+
+async def state_import(request: Request):
+    return JSONResponse({"restored": studio_server.import_state(await request.json())})
+
+
+class ApiKey:
+    """Rejects any request without the shared key, except the health probe."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"] != "/healthz":
+            supplied = dict(scope["headers"]).get(b"x-api-key", b"").decode()
+            if not API_KEY or not hmac.compare_digest(supplied, API_KEY):
+                await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+app = ApiKey(Starlette(
+    routes=[Route("/healthz", healthz), Route("/trace", trace), Route("/events", events), Route("/case/{case_id}", case),
+            Route("/report/{case_id}/{n:int}.{ext}", report_file),
+            Route("/state/{case_id}", state_export),
+            Route("/state", state_import, methods=["POST"]),
+            Mount("/genie", app=genie_gateway.mcp.streamable_http_app()),
+            Mount("/agents", app=agent_bridge.mcp.streamable_http_app()),
+            Mount("/context", app=case_context.mcp.streamable_http_app()),
+            Mount("/studio", app=studio_server.mcp.streamable_http_app())],
+    lifespan=lifespan))
+
+if __name__ == "__main__":
+    import os
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8080")))

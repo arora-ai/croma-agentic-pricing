@@ -1,0 +1,16 @@
+.venv
+.env
+.git
+.github
+**/__pycache__
+**/node_modules
+agents
+ui
+infra
+config
+integrations
+docs
+tests
+chat.py
+README.md
+requirements-dev.txt

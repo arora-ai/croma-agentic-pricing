@@ -1,0 +1,18 @@
+{
+  "_help": "Describes YOUR data space to the agents. Copy this file to config/data_profile.json and edit every value. The agent prompts (agents/prompts/*.md) read it at deploy time, so no prompt needs editing. Keep it factual: the agents treat it as ground truth and will not ask the user for it.",
+
+  "coverage": "from <first date of data> to <last date of data>",
+  "fiscal_year": "<for example April to March>",
+  "zones": "<comma-separated geography names the business uses, for example zone names>",
+  "channels": "<the sales channels, for example Stores (offline), Online (website and marketplace) or Quick Commerce>",
+  "categories": "<a handful of example product categories, classes or brands, for example Laptops, Air Conditioners, Mobile Accessories>",
+
+  "facts": [
+    "<One fact per line. State what the data space can and cannot do, so the planner does not plan around data that does not exist.>",
+    "Transactions cover <coverage>. Year-on-year views are possible for any period whose last-year dates are inside that range.",
+    "Channels are <channels>. Channels must be mutually exclusive when summed. <Say what is always excluded, for example Miscellaneous and Charges.>",
+    "Targets: <which plan or target types exist (AOP, SOP, mission targets), at what grain (channel, category, zone, day), and which are comparable with which actuals. For example: zone targets cover Stores only, so compare them with Stores actuals, never with enterprise actuals.>",
+    "<Which measures exist only for part of the business, for example margin and markdown for Stores only.>",
+    "A week is <Monday to Sunday>. A weekday-aligned year-on-year week starts <364 days earlier>."
+  ]
+}

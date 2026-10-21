@@ -1,0 +1,28 @@
+# Secrets and local state: never commit these
+.env
+.env.*
+!.env.example
+infra/config.ps1
+config/data_profile.json
+*.pem
+*.key
+
+# Runtime data (chat history holds real conversations)
+ui/backend/data/
+tests/_out/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node
+ui/frontend/node_modules/
+ui/frontend/dist/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
