@@ -8,6 +8,8 @@ $Cfg = @{
     Foundry       = "<foundry (AI services) account name>"
     Project       = "<foundry project name>"
     App           = "croma-tools-hub"                        # name of the container app that runs the hub
+    NamePrefix    = "croma"                                  # prefix of every Foundry agent, connection and the memory store: <prefix>-cx, <prefix>-hub-genie ...
+                                                             # use a different prefix (and App) to run a second copy of the system side by side
 }
 $Cfg.ProjectEndpoint = "https://$($Cfg.Foundry).services.ai.azure.com/api/projects/$($Cfg.Project)"
 $Cfg.FoundryScope = "/subscriptions/$($Cfg.Subscription)/resourceGroups/$($Cfg.ResourceGroup)/providers/Microsoft.CognitiveServices/accounts/$($Cfg.Foundry)"

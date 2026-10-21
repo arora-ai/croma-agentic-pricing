@@ -6,7 +6,8 @@ $root = Split-Path $PSScriptRoot -Parent
 $env_ = @{}
 Get-Content "$root\.env" | ForEach-Object { $k, $v = $_ -split "=", 2; $env_[$k] = $v }
 $project = "$($Cfg.FoundryScope)/projects/$($Cfg.Project)"
-$endpoints = @{ "croma-hub-genie" = "/genie/mcp"; "croma-hub-agents" = "/agents/mcp"; "croma-hub-context" = "/context/mcp"; "croma-hub-studio" = "/studio/mcp" }
+$prefix = if ($Cfg.NamePrefix) { $Cfg.NamePrefix } else { "croma" }
+$endpoints = @{ "$prefix-hub-genie" = "/genie/mcp"; "$prefix-hub-agents" = "/agents/mcp"; "$prefix-hub-context" = "/context/mcp"; "$prefix-hub-studio" = "/studio/mcp" }
 foreach ($name in $endpoints.Keys) {
     $body = @{ properties = @{ category = "CustomKeys"; target = $env_["HUB_URL"] + $endpoints[$name]; authType = "CustomKeys"; isSharedToAll = $true
                                credentials = @{ keys = @{ "x-api-key" = $env_["HUB_API_KEY"] } } } } | ConvertTo-Json -Depth 5

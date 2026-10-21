@@ -36,11 +36,16 @@ REPORT_MODELS = {k: os.getenv(f"REPORT_MODEL_{k.upper()}", v) for k, v in REPORT
 # Reasoning budget per role of the report team (override with REPORT_EFFORT_<ROLE>).
 REPORT_EFFORT = {k: os.getenv(f"REPORT_EFFORT_{k.upper()}", "medium" if k == "writer" else "high") for k in ("reporting", "planner", "insight", "strategist", "writer", "reviewer")}
 
-CONNECTIONS = {"genie": "croma-hub-genie", "agents": "croma-hub-agents", "context": "croma-hub-context", "studio": "croma-hub-studio"}
+NAME_PREFIX = os.getenv("NAME_PREFIX", "croma")
+CONNECTIONS = {kind: f"{NAME_PREFIX}-hub-{kind}" for kind in ("genie", "agents", "context", "studio")}
 
-NAMES = {"cx": "croma-cx", "lookup": "croma-lookup", "research": "croma-research", "analysis": "croma-analysis", "reporting": "croma-reporting",
-         "planner": "croma-report-planner", "insight": "croma-report-insight", "strategist": "croma-report-strategist", "writer": "croma-report-writer",
-         "reviewer": "croma-report-reviewer", "data": "croma-data"}
+# Same names as hub/settings.py (the hub is a separate container and cannot import from here; tests/test_names.py checks they agree).
+ROLE_SUFFIX = {
+    "cx": "cx", "lookup": "lookup", "research": "research", "analysis": "analysis", "reporting": "reporting",
+    "planner": "report-planner", "insight": "report-insight", "strategist": "report-strategist", "writer": "report-writer", "reviewer": "report-reviewer",
+    "data": "data", "scoper": "scoper", "analyst": "analyst", "critic": "critic",
+}
+NAMES = {role: f"{NAME_PREFIX}-{suffix}" for role, suffix in ROLE_SUFFIX.items()}
 
 
 def _mcp(label: str, base: str, path: str, tools: list[str]) -> MCPTool:

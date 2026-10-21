@@ -16,6 +16,8 @@ from mcp.server.fastmcp import FastMCP
 
 import case_context
 from events import traced
+from studio import analytics
+from studio import analyze as analyze_mod
 from studio import audit as audit_mod
 from studio import cites, ledger, render_docx, render_html, resolve, spec, tidy
 
@@ -187,6 +189,24 @@ def derive_table(case_id: str, label: str, source: str, add_columns: list[dict] 
     condition such as "cy_nmv > 0". keep, rename, sort_by, limit shape the output. Use the T id in a table or chart block."""
     try:
         return _ok(table=ledger.derive_table(case_id, label, source, add_columns, keep, rename, sort_by, descending, limit, join_with, join_on, where))
+    except Exception as exc:
+        return _err(f"{type(exc).__name__}: {exc}")
+
+
+@mcp.tool()
+@traced("studio")
+def analyze(case_id: str, op: str, source: str = "", params: dict | None = None, label: str = "") -> str:
+    """Exact analytics on a result you already have, so you never do driver arithmetic by hand. op is one of: contribution (what each segment added to a
+    change), rate_mix (a ratio such as margin % or markdown %, split into rate and mix effects per segment), price_volume_mix (a value such as NMV, split into
+    volume, mix and price effects), target_gap, concentration, trend, reconcile, materiality. source: the result id (R or T). params: the column names to use,
+    for example {"key": "category", "cur": "cy_nmv", "base": "ly_nmv"}. The parts of a decomposition add up exactly to the total change. Returns a T id (the
+    detail table) and a D id for every headline figure; cite them. Call with op "help" to read every operation with its parameters and outputs."""
+    if op == "help":
+        return _ok(operations=analytics.catalog())
+    try:
+        return _ok(**analyze_mod.run_op(case_id, op, source, params, label))
+    except KeyError as exc:
+        return _err(str(exc.args[0]))
     except Exception as exc:
         return _err(f"{type(exc).__name__}: {exc}")
 

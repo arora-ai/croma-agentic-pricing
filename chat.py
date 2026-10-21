@@ -3,6 +3,7 @@
     python chat.py                      interactive chat (type 'exit' to quit; '/trace' shows agent-to-agent calls)
     python chat.py "your question"      one message, then exit
     python chat.py --agent croma-data "weekly net sales by zone for last week"     talk straight to one agent (for testing)
+    (with NAME_PREFIX set, the agent names carry that prefix, for example croma2-cx; --agent defaults to the CX agent of the prefix)
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+from agents.definitions import NAMES
 from agents.deploy_agents import load_env, project
 
 sys.stdout.reconfigure(encoding="utf-8")
@@ -36,7 +38,7 @@ def show_trace(env: dict, since: int = 0) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("message", nargs="?")
-    parser.add_argument("--agent", default="croma-cx")
+    parser.add_argument("--agent", default=NAMES["cx"])
     args = parser.parse_args()
     env = load_env()
     client = project().get_openai_client()

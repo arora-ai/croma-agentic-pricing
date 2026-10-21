@@ -7,8 +7,9 @@ import os
 from azure.core.exceptions import ResourceNotFoundError
 from azure.ai.projects.models import MemoryStoreDefaultDefinition, MemoryStoreDefaultOptions
 
-MEMORY_STORE = os.getenv("MEMORY_STORE", "croma-user-memory")
-MEMORY_SCOPE = os.getenv("MEMORY_SCOPE", "croma-user-1")  # one user for now; use the Entra object id when there are several
+NAME_PREFIX = os.getenv("NAME_PREFIX", "croma")
+MEMORY_STORE = os.getenv("MEMORY_STORE", f"{NAME_PREFIX}-user-memory")
+MEMORY_SCOPE = os.getenv("MEMORY_SCOPE", f"{NAME_PREFIX}-user-1")  # the default user; one scope per user when several people share the store
 CHAT_MODEL = os.getenv("AGENT_MODEL", "gpt-5.4-mini")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
 

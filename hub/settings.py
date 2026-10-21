@@ -27,19 +27,16 @@ DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN", "")  # only for DATABRICKS_AUTH
 # Custom backend: "package.module:function", an async function ask(question, conversation_id) -> dict (see integrations/genie/README.md).
 CUSTOM_BACKEND = os.getenv("CUSTOM_BACKEND", "")
 
-# Foundry agent names; also used by deploy.py. The report team sits behind the Reporting agent (the editor).
-AGENT_NAMES = {
-    "cx": "croma-cx",
-    "lookup": "croma-lookup",
-    "research": "croma-research",
-    "analysis": "croma-analysis",
-    "reporting": "croma-reporting",
-    "planner": "croma-report-planner",
-    "insight": "croma-report-insight",
-    "strategist": "croma-report-strategist",
-    "writer": "croma-report-writer",
-    "reviewer": "croma-report-reviewer",
-    "data": "croma-data",
+# Foundry agent names: <NAME_PREFIX>-<suffix>. A different prefix gives a second, independent set of agents in the same Foundry project, so two versions
+# of the system can run side by side. agents/definitions.py builds the same names (tests/test_names.py keeps the two in step).
+# The report team sits behind the Reporting agent (the editor); scoper, analyst and critic are the workers of the Analysis and Research harnesses.
+NAME_PREFIX = os.getenv("NAME_PREFIX", "croma")
+ROLE_SUFFIX = {
+    "cx": "cx", "lookup": "lookup", "research": "research", "analysis": "analysis", "reporting": "reporting",
+    "planner": "report-planner", "insight": "report-insight", "strategist": "report-strategist", "writer": "report-writer", "reviewer": "report-reviewer",
+    "data": "data", "scoper": "scoper", "analyst": "analyst", "critic": "critic",
 }
+AGENT_NAMES = {role: f"{NAME_PREFIX}-{suffix}" for role, suffix in ROLE_SUFFIX.items()}
 REPORT_TEAM = ("planner", "insight", "strategist", "writer", "reviewer")
+WORKERS = ("scoper", "analyst", "critic")
 AGENT_CALL_TIMEOUT_S = float(os.getenv("AGENT_CALL_TIMEOUT_S", "3600"))

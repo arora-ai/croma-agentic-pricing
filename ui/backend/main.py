@@ -27,11 +27,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from agents.deploy_agents import load_env, project
+from agents.definitions import NAMES
 from agents.memory_store import MEMORY_SCOPE, MEMORY_STORE
 from ui.backend import store
 
 DIST = Path(__file__).parent.parent / "frontend" / "dist"
-CX_AGENT = "croma-cx"
+CX_AGENT = os.getenv("CX_AGENT", NAMES["cx"])
 MODEL = os.getenv("AGENT_MODEL", "gpt-5.4-mini")
 POLL_SECONDS = 0.5
 
@@ -287,9 +288,9 @@ async def chat(req: ChatRequest):
                                         "seconds": round(time.time() - memory_started.get(item_id, time.time()), 2),
                                         "detail": {"search_id": getattr(item, "search_id", None), "memory_update": getattr(item, "update_id", None), "embedding_tokens": tokens}})
                     elif item_type == "mcp_call" and kind.endswith("added"):
-                        put("log", {"level": "debug", "msg": f"croma-cx → {getattr(item, 'server_label', '')}.{getattr(item, 'name', '')}"})
+                        put("log", {"level": "debug", "msg": f"{CX_AGENT} → {getattr(item, 'server_label', '')}.{getattr(item, 'name', '')}"})
                     elif item_type == "mcp_list_tools" and kind.endswith("added"):
-                        put("log", {"level": "debug", "msg": f"croma-cx loaded tools from {getattr(item, 'server_label', '')}"})
+                        put("log", {"level": "debug", "msg": f"{CX_AGENT} loaded tools from {getattr(item, 'server_label', '')}"})
                 elif kind == "response.completed":
                     u = getattr(event.response, "usage", None)
                     usage = {"input_tokens": getattr(u, "input_tokens", None), "output_tokens": getattr(u, "output_tokens", None)}

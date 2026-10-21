@@ -18,7 +18,8 @@ if ($LASTEXITCODE) { throw "image build failed" }
 
 $image = "$($Cfg.Acr).azurecr.io/$app`:$tag"
 $g = $Cfg.Genie
-$settings = @("FOUNDRY_PROJECT_ENDPOINT=$($Cfg.ProjectEndpoint)", "AGENT_CALL_TIMEOUT_S=3600", "GENIE_BACKEND=$($g.Backend)")
+$prefix = if ($Cfg.NamePrefix) { $Cfg.NamePrefix } else { "croma" }
+$settings = @("FOUNDRY_PROJECT_ENDPOINT=$($Cfg.ProjectEndpoint)", "AGENT_CALL_TIMEOUT_S=3600", "GENIE_BACKEND=$($g.Backend)", "NAME_PREFIX=$prefix")
 if ($g.DatabricksHost) { $settings += "DATABRICKS_HOST=$($g.DatabricksHost)" }
 if ($g.SpaceId) { $settings += "GENIE_SPACE_ID=$($g.SpaceId)" }
 if ($g.AuthMode) { $settings += "DATABRICKS_AUTH=$($g.AuthMode)" }

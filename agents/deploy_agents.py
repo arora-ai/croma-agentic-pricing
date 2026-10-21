@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from azure.ai.projects import AIProjectClient
-from azure.identity import AzureCliCredential
+from azure.identity import DefaultAzureCredential
 
 from agents.data_profile import ProfileError
 from agents.definitions import DESCRIPTIONS, NAMES, build
@@ -24,15 +24,22 @@ ROOT = Path(__file__).parent.parent
 
 
 def load_env() -> dict[str, str]:
+    """Settings from .env (written by infra/deploy_hub.ps1) with real environment variables on top, so the same code runs on a laptop and in a container
+    (where there is no .env file and the settings arrive as environment variables)."""
     path = ROOT / ".env"
-    if not path.exists():
-        raise SystemExit(".env is missing. Copy .env.example to .env, or run infra/deploy_hub.ps1, which writes it.")
-    env = dict(line.split("=", 1) for line in path.read_text(encoding="utf-8-sig").splitlines() if "=" in line and not line.lstrip().startswith("#"))
-    return {**env, **{k: v for k, v in os.environ.items() if k in env}}
+    env: dict[str, str] = {}
+    if path.exists():
+        env = dict(line.split("=", 1) for line in path.read_text(encoding="utf-8-sig").splitlines() if "=" in line and not line.lstrip().startswith("#"))
+    keys = {*env, "HUB_URL", "HUB_API_KEY", "FOUNDRY_PROJECT_ENDPOINT"}
+    merged = {**env, **{k: os.environ[k] for k in keys if k in os.environ}}
+    if not path.exists() and not {"HUB_URL", "FOUNDRY_PROJECT_ENDPOINT"} <= merged.keys():
+        raise SystemExit(".env is missing. Copy .env.example to .env, or run infra/deploy_hub.ps1, which writes it (or set HUB_URL, HUB_API_KEY and FOUNDRY_PROJECT_ENDPOINT).")
+    return merged
 
 
 def project() -> AIProjectClient:
-    return AIProjectClient(endpoint=load_env()["FOUNDRY_PROJECT_ENDPOINT"], credential=AzureCliCredential())
+    """az login on a laptop; the managed identity of the container when deployed."""
+    return AIProjectClient(endpoint=load_env()["FOUNDRY_PROJECT_ENDPOINT"], credential=DefaultAzureCredential(exclude_interactive_browser_credential=True))
 
 
 def main() -> None:
