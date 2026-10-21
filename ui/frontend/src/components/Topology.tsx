@@ -1,10 +1,12 @@
 ﻿import { useMemo } from "react";
-import { NODES, type Call, type NodeKey } from "../types";
+import { HARNESS_STEPS } from "../lib";
+import { NODES, WORKERS, type Call, type NodeKey, type StageRow } from "../types";
 
 const W = 104;
 const H = 50;
 const TW = 100;
-const POS: Record<NodeKey, { x: number; y: number; w?: number }> = {
+type Placed = Exclude<NodeKey, "scoper" | "analyst" | "critic">;  // the harness workers are drawn as small dots inside the Research and Analysis nodes
+const POS: Record<Placed, { x: number; y: number; w?: number }> = {
   memory: { x: 56, y: 42 },
   cx: { x: 221, y: 42 },
   context: { x: 386, y: 42 },
@@ -22,7 +24,7 @@ const POS: Record<NodeKey, { x: number; y: number; w?: number }> = {
   studio: { x: 560, y: 412, w: TW },
 };
 
-const EDGES: { from: NodeKey; to: NodeKey; dashed?: boolean }[] = [
+const EDGES: { from: Placed; to: Placed; dashed?: boolean }[] = [
   { from: "cx", to: "lookup" },
   { from: "cx", to: "research" },
   { from: "cx", to: "analysis" },
@@ -44,9 +46,9 @@ const EDGES: { from: NodeKey; to: NodeKey; dashed?: boolean }[] = [
   { from: "writer", to: "studio", dashed: true },
 ];
 
-const TEAM_SET = new Set<NodeKey>(["planner", "insight", "strategist", "reviewer", "writer"]);
+const TEAM_SET = new Set<Placed>(["planner", "insight", "strategist", "reviewer", "writer"]);
 
-function edgePath(from: NodeKey, to: NodeKey): string {
+function edgePath(from: Placed, to: Placed): string {
   const a = POS[from];
   const b = POS[to];
   if (from === "cx" && to === "context") return `M ${a.x + W / 2} ${a.y} L ${b.x - (b.w ?? W) / 2} ${b.y}`;
@@ -70,22 +72,34 @@ function edgePath(from: NodeKey, to: NodeKey): string {
   return `M ${a.x} ${y1} C ${a.x} ${mid}, ${b.x} ${mid}, ${b.x} ${y2}`;
 }
 
-export function Topology({ calls, running, genieBackend }: { calls: Call[]; running: boolean; genieBackend?: string }) {
-  const { open, used, count, activeEdges } = useMemo(() => {
+export function Topology({ calls, running, genieBackend, stages = [] }: { calls: Call[]; running: boolean; genieBackend?: string; stages?: StageRow[] }) {
+  const { open, used, count, activeEdges, workerOpen, workerUsed } = useMemo(() => {
     const open = new Map<NodeKey, number>();
     const used = new Set<NodeKey>();
     const count = new Map<NodeKey, number>();
     const activeEdges = new Set<string>();
+    const workerOpen = new Set<string>();
+    const workerUsed = new Set<string>();
     for (const c of calls) {
       used.add(c.node);
       count.set(c.node, (count.get(c.node) ?? 0) + 1);
+      if (WORKERS.includes(c.node)) {
+        workerUsed.add(`${c.caller}>${c.node}`);
+        if (c.end === undefined && running) workerOpen.add(`${c.caller}>${c.node}`);
+      }
       if (c.end === undefined && running) {
         open.set(c.node, (open.get(c.node) ?? 0) + 1);
         if (c.caller !== "user") activeEdges.add(`${c.caller}>${c.node}`);
       }
     }
-    return { open, used, count, activeEdges };
+    return { open, used, count, activeEdges, workerOpen, workerUsed };
   }, [calls, running]);
+
+  // what a harness node is doing right now, in the user's words ("get data", "conclude")
+  const stageLabel = (k: NodeKey) => {
+    const row = [...stages].reverse().find((s) => s.harness === k && s.end === undefined);
+    return row ? HARNESS_STEPS.find((s) => s.stages.includes(row.stage))?.label.toLowerCase() : undefined;
+  };
 
   const status = (k: NodeKey) => {
     if (open.get(k)) return k === "genie" ? "querying" : k === "context" || k === "studio" ? "writing" : k === "memory" ? "recalling" : k === "data" ? "fetching" : "working";
@@ -107,18 +121,27 @@ export function Topology({ calls, running, genieBackend }: { calls: Call[]; runn
           </g>
         );
       })}
-      {(Object.keys(POS) as NodeKey[]).map((k) => {
+      {(Object.keys(POS) as Placed[]).map((k) => {
         const p = POS[k];
         const w = p.w ?? W;
         const st = status(k);
         const n = count.get(k) ?? 0;
+        const harness = k === "research" || k === "analysis";
         return (
           <g key={k} className={`node ${st}`} style={{ ["--c" as string]: NODES[k].color }} transform={`translate(${p.x - w / 2}, ${p.y - H / 2})`}>
             {st === "working" || st === "querying" || st === "fetching" || st === "writing" || st === "recalling" ? <rect className="halo" width={w} height={H} rx={12} /> : null}
             <rect className="box" width={w} height={H} rx={12} />
             <circle className="dot" cx={15} cy={H / 2} r={4.5} />
             <text className="label" x={28} y={H / 2 - 3}>{NODES[k].label}</text>
-            <text className="sub" x={28} y={H / 2 + 12}>{open.get(k) ? `${st}…` : k === "genie" ? ({ databricks: "Databricks", custom: "Custom", stub: "Not connected" } as Record<string, string>)[genieBackend ?? ""] ?? "Data" : NODES[k].sub.split(" · ")[0]}</text>
+            <text className="sub" x={28} y={H / 2 + 12}>{open.get(k) ? `${harness ? stageLabel(k) ?? st : st}…` : k === "genie" ? ({ databricks: "Databricks", custom: "Custom", stub: "Not connected" } as Record<string, string>)[genieBackend ?? ""] ?? "Data" : NODES[k].sub.split(" · ")[0]}</text>
+            {harness && WORKERS.map((wk, i) => {
+              const key = `${k}>${wk}`;
+              return (
+                <circle key={wk} className={`wdot ${workerOpen.has(key) ? "on" : workerUsed.has(key) ? "used" : ""}`} cx={w - 12} cy={27 + i * 9} r={3.2} style={{ ["--c" as string]: NODES[wk].color }}>
+                  <title>{`${NODES[wk].label}: ${NODES[wk].sub}`}</title>
+                </circle>
+              );
+            })}
             {n > 0 && (
               <g transform={`translate(${w - 14}, 12)`}>
                 <circle r={9} className="badge" />

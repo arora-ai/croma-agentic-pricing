@@ -1,16 +1,20 @@
 ﻿export type NodeKey =
   | "cx" | "lookup" | "research" | "analysis" | "reporting" | "data" | "genie" | "context" | "memory"
-  | "planner" | "insight" | "strategist" | "writer" | "reviewer" | "studio";
+  | "planner" | "insight" | "strategist" | "writer" | "reviewer" | "studio"
+  | "scoper" | "analyst" | "critic";
 
 export interface HubEvent {
   seq: number;
   ts: number;
-  type: "agent_start" | "agent_end" | "tool_start" | "tool_end";
+  type: "agent_start" | "agent_end" | "tool_start" | "tool_end" | "stage_start" | "stage_end";
   id: string;
   agent?: string;
   caller?: string;
   server?: string;
   tool?: string;
+  harness?: string;
+  run_id?: string;
+  stage?: string;
   case_id?: string;
   ask?: string;
   answer?: string;
@@ -65,8 +69,11 @@ export interface Message {
 export const NODES: Record<NodeKey, { label: string; sub: string; color: string }> = {
   cx: { label: "CX agent", sub: "Pre · front of the system", color: "#0f766e" },
   lookup: { label: "Lookup", sub: "Post agent", color: "#0369a1" },
-  research: { label: "Research", sub: "Post agent", color: "#2563eb" },
-  analysis: { label: "Analysis", sub: "Post agent", color: "#7c3aed" },
+  research: { label: "Research", sub: "Harness", color: "#2563eb" },
+  analysis: { label: "Analysis", sub: "Harness", color: "#7c3aed" },
+  scoper: { label: "Scoper", sub: "Plans", color: "#4f46e5" },
+  analyst: { label: "Analyst", sub: "Concludes", color: "#6d28d9" },
+  critic: { label: "Critic", sub: "Challenges", color: "#9f1239" },
   reporting: { label: "Reporting", sub: "Editor", color: "#be185d" },
   planner: { label: "Planner", sub: "Designs", color: "#c026d3" },
   insight: { label: "Insight", sub: "Analyses", color: "#7e22ce" },
@@ -82,6 +89,21 @@ export const NODES: Record<NodeKey, { label: string; sub: string; color: string 
 
 export const AGENT_NODES: NodeKey[] = ["cx", "lookup", "research", "analysis", "reporting", "planner", "insight", "strategist", "writer", "reviewer", "data"];
 export const TEAM: NodeKey[] = ["planner", "insight", "strategist", "writer", "reviewer"];
+export const WORKERS: NodeKey[] = ["scoper", "analyst", "critic"];
+
+/** One stage of an Analysis or Research harness run, from the hub's stage events. */
+export interface StageRow {
+  id: string;
+  turn: number;
+  harness: string;
+  runId: string;
+  stage: string;
+  start: number;
+  end?: number;
+  ok?: boolean;
+  seconds?: number;
+  summary?: string;
+}
 
 export interface ConvSummary {
   id: string;

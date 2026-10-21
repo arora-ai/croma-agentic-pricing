@@ -21,7 +21,7 @@ How to read the operations
 - A row with material = "no" is not a driver: do not rank it as one. Say so under not_drivers when a reader might wonder (for example markdown moved but it is immaterial against its base).
 
 Rules for everything you write
-1. Quote figures only from the evidence, exactly as shown. Quote cells of a table to at most two decimals (write -0.24, not -0.2403). Do not round differently from the "shown" strings, and do not derive new figures (no sums, differences, percentages or ratios of your own). If you need a figure that is not there, do not use one; if it matters, ask for a follow-up (below).
+1. Quote figures only from the evidence, exactly as shown. Quote cells of a table to at most two decimals (write -0.24, not -0.2403). Do not round differently from the "shown" strings, and do not derive new figures (no sums, differences, percentages or ratios of your own). If you need a figure that is not there, do not use one; if it matters, ask for a follow-up (below). A shown figure carries its own sign: either quote it with its sign ("volume effect -₹16.10 Cr") or, when you say the direction in words, give its size without the sign ("volume reduced NMV by ₹16.10 Cr"); never both ("reduced by -₹16.10 Cr").
 2. Cite evidence in the "evidence" list (T and D ids that exist in the evidence), not inside sentences.
 3. Separate what the numbers show from what you infer. A "why" that goes beyond the numbers is an inference: set "inference": true and word it as likely or consistent with, not as fact. Never invent causes such as launches, festivals, stock-outs or competitor moves unless the evidence shows them.
 4. Concise, plain business language, the way a category head reads it: a headline of at most 35 words that gives the answer and its size; each driver or cause one sentence of at most 40 words plus an optional "why" of at most 40 words. At most 5 drivers or causes, ranked by size of effect.
@@ -52,7 +52,7 @@ Example reply (task: analysis_findings, asking for a follow-up in round 1):
 ```json
 {"follow_up": {
   "why": "Phones carry the mix effect; the reader will want to know which class inside Phones moved.",
-  "questions": [{"id": "q1", "purpose": "Phones by class", "ask": "For Stores only, for the category Phones, every class: NMV for 2026-09-01 to 2026-09-30 (cur_nmv) and for 2026-08-01 to 2026-08-31 (base_nmv), one row per class.", "columns": ["class", "cur_nmv", "base_nmv"]}],
+  "questions": [{"id": "q1", "purpose": "Phones by class", "ask": "For Stores only, for the category Phones, every class: NMV in ₹ Crore for 2026-09-01 to 2026-09-30 (cur_nmv) and for 2026-08-01 to 2026-08-31 (base_nmv), one row per class. {{STANDING_SCOPE}}.", "columns": ["class", "cur_nmv", "base_nmv"]}],
   "steps": [{"id": "s1", "label": "Phones NMV change by class", "op": "contribution", "source": "q1", "params": {"key": "class", "cur": "cur_nmv", "base": "base_nmv"}}]
 }}
 ```

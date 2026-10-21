@@ -140,6 +140,8 @@ function logLines(events: HubEvent[], logs: State["logs"]) {
     if (e.type === "agent_start") lines.push({ ts: e.ts, level: "info", msg: `agent.start   ${who} ← ${e.caller}  ${(e.ask ?? "").replace(/\s+/g, " ").slice(0, 110)}` });
     else if (e.type === "agent_end") lines.push({ ts: e.ts, level: e.ok === false ? "error" : "info", msg: `agent.end     ${who}  ${e.ok === false ? "FAILED" : "ok"}  ${e.seconds ?? "?"}s${e.input_tokens ? `  tokens in=${e.input_tokens} out=${e.output_tokens}` : ""}` });
     else if (e.type === "tool_start") lines.push({ ts: e.ts, level: "debug", msg: `tool.call     ${who}  caller=${e.caller}${e.case_id ? `  case=${e.case_id}` : ""}` });
+    else if (e.type === "stage_start") lines.push({ ts: e.ts, level: "info", msg: `stage.start   ${e.harness}.${e.stage}  run=${e.run_id}` });
+    else if (e.type === "stage_end") lines.push({ ts: e.ts, level: e.ok === false ? "error" : "info", msg: `stage.end     ${e.harness}.${e.stage}  ${e.ok === false ? "FAILED" : "ok"}  ${e.seconds ?? "?"}s${e.summary ? `  ${e.summary}` : ""}` });
     else lines.push({ ts: e.ts, level: e.ok === false ? "error" : "info", msg: `tool.done     ${who}  ${e.ok === false ? "FAILED" : "ok"}${e.summary && e.summary !== "ok" ? `  ${e.summary}` : ""}  ${e.seconds ?? "?"}s` });
   }
   return lines.sort((a, b) => a.ts - b.ts);

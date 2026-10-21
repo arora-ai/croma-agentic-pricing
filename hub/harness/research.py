@@ -59,6 +59,11 @@ def _cell(text: str) -> str:
     return text.replace("|", "/").replace("\n", " ")
 
 
+def _label(name: str) -> str:
+    """'mix_share_of_gross_pct' -> 'mix share of gross' (the unit shows in the figure)."""
+    return " ".join(name.replace("_pct", "").replace("_total", "").replace("_", " ").split())
+
+
 def render(case_id: str, plan: Plan, data: dict, results: list[dict], gathered: dict, extras: dict, critique: dict | None, verified: dict, run: Run) -> str:
     c = ResearchConclusion.model_validate(data)
     verdicts = extras.get("hypotheses", [])
@@ -67,11 +72,11 @@ def render(case_id: str, plan: Plan, data: dict, results: list[dict], gathered: 
     if movement:
         sized = next((r for r in results if r.get("ok") and r["step"] == movement["step"]), None)
         if sized:
-            lines += [f"**{sized['label']}**", core.step_table(case_id, sized, plan), ""]
+            lines += [f"**{core.table_title(sized, plan)}**", core.step_table(case_id, sized, plan), ""]
     if verdicts:
         lines += ["**What the data says about each explanation**", "", "| Explanation | Verdict | Key figures | Evidence |", "|---|---|---|---|"]
         for v in verdicts:
-            figs = "; ".join(f"{n.replace('_', ' ')} {f['shown']}" for n, f in v.get("figures", {}).items()) or v.get("reason", "")
+            figs = "; ".join(f"{_label(n)} {f['shown']}" for n, f in v.get("figures", {}).items()) or v.get("reason", "")
             lines.append(f"| {_cell(v['claim'])} | {STATUS_WORDS[v['status']]} | {_cell(figs)} | {v.get('table', '')} |")
         lines.append("")
     if c.causes:
@@ -101,7 +106,7 @@ def save(ctx: Ctx, data: dict, extras: dict) -> int:
         ctx.deps.save_finding(ctx.case_id, "research", f"Cause {i}: {cause.claim[:70]}", f"{cause.claim} {cause.size} Evidence: {', '.join(cause.evidence)}.".replace("  ", " "))
         n += 1
     for v in extras.get("hypotheses", []):
-        figs = "; ".join(f"{k.replace('_', ' ')} {f['shown']}" for k, f in v.get("figures", {}).items()) or v.get("reason", "")
+        figs = "; ".join(f"{_label(k)} {f['shown']}" for k, f in v.get("figures", {}).items()) or v.get("reason", "")
         ctx.deps.save_finding(ctx.case_id, "research", f"{STATUS_WORDS[v['status']]}: {v['claim'][:70]}", f"{v['claim']} Test: {v['supports_if']}. Result: {figs}. Evidence: {v.get('table', '')}.")
         n += 1
     return n

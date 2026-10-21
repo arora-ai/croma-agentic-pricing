@@ -5,7 +5,7 @@ import { Chat } from "./components/Chat";
 import { Sidebar } from "./components/Sidebar";
 import { Telemetry, type Tab } from "./components/Telemetry";
 import { Topology } from "./components/Topology";
-import { buildCalls } from "./lib";
+import { buildCalls, buildStages } from "./lib";
 import { useChat } from "./store";
 
 export default function App() {
@@ -14,6 +14,7 @@ export default function App() {
   const [admin, setAdmin] = useState(true);
   const [tab, setTab] = useState<Tab>("activity");
   const latest = useMemo(() => buildCalls(state.events).filter((c) => c.turn === state.turn), [state.events, state.turn]);
+  const latestStages = useMemo(() => buildStages(state.events).filter((s) => s.turn === state.turn), [state.events, state.turn]);
   const live = state.running;
 
   const showMemory = () => {
@@ -51,7 +52,7 @@ export default function App() {
             </div>
             <div className="card network">
               <div className="card-title">Agent network<span>{state.health?.project ?? ""}</span></div>
-              <Boundary label="The network view"><Topology calls={latest} running={live} genieBackend={state.health?.genie_backend} /></Boundary>
+              <Boundary label="The network view"><Topology calls={latest} running={live} genieBackend={state.health?.genie_backend} stages={latestStages} /></Boundary>
             </div>
             <Telemetry state={state} tab={tab} setTab={setTab} />
           </aside>

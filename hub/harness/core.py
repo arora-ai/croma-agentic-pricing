@@ -250,7 +250,7 @@ def shown(value: float | None, hint: str, unit: str) -> str:
     if hint == "count":
         return f"{value:,.0f}"
     if "cr" in unit.lower():
-        return f"\u20b9{value:,.2f} Cr"
+        return f"{'-' if value < 0 else ''}\u20b9{abs(value):,.2f} Cr"
     return f"{value:,.2f}" + (f" {unit}" if unit and unit != "\u20b9" else "")
 
 
@@ -258,6 +258,21 @@ def data_note(answer: str, limit: int = 700) -> str:
     """The source and caveat lines of a Data agent answer, without its table (the rows are in the ledger)."""
     lines = [ln.strip() for ln in answer.splitlines() if ln.strip() and not ln.strip().startswith("|")]
     return " ".join(lines)[:limit]
+
+
+WHERE = re.compile(r"\bWHERE\b(.*?)(?=\bGROUP BY\b|\bORDER BY\b|\bHAVING\b|\bQUALIFY\b|\bLIMIT\b|\)\s*,|\)\s*SELECT\b|$)", re.I)
+
+
+def where_filters(sql: str, limit: int = 420) -> list[str]:
+    """The WHERE conditions of the SQL the data space ran (best effort, one per query block), so a reviewer can compare the basis of different questions."""
+    seen: list[str] = []
+    for m in WHERE.finditer(re.sub(r"\s+", " ", sql or "")):
+        text = m.group(1).replace("`", "").strip()
+        while text.endswith(")") and text.count(")") > text.count("("):  # the bracket that closes the enclosing block, not one of the condition's own
+            text = text[:-1].rstrip()
+        if text and text not in seen:
+            seen.append(text[:limit])
+    return seen[:3]
 
 
 def evidence_pack(case_id: str, plan: Plan, questions: list[Question], gathered: dict[str, dict], results: list[dict]) -> dict:
@@ -272,6 +287,7 @@ def evidence_pack(case_id: str, plan: Plan, questions: list[Question], gathered:
         if rid:
             entry["rows"] = len(c.tables[rid].rows)
             entry["data_space_note"] = data_note(g.get("answer", ""))
+            entry["filters"] = where_filters(c.tables[rid].sql)
         else:
             entry["problem"] = "no usable data came back: " + data_note(g.get("answer", ""), 240)
         data.append(entry)
@@ -412,6 +428,15 @@ def header(column: str, plan: Plan) -> str:
              "base_rate_pct": f"{plan.base_label} rate %", "current_rate_pct": f"{plan.current_label} rate %", "rate_effect_pp": "Rate effect (pp)", "mix_effect_pp": "Mix effect (pp)",
              "total_effect_pp": "Total (pp)", "achievement_pct": "Achievement %", "share_pct": "Share %", "cumulative_share_pct": "Cumulative %"}
     return fixed.get(column) or column.replace("_pct", " %").replace("_pp", " (pp)").replace("_", " ").capitalize()
+
+
+VALUE_OPS = {"contribution", "price_volume_mix", "target_gap", "concentration", "trend"}
+
+
+def table_title(result: dict, plan: Plan) -> str:
+    """The step's label, with the unit its amounts are in when it has any (ratio tables carry their units in the column headers)."""
+    unit = result.get("unit") or plan.unit
+    return f"{result['label']} ({unit})" if result["op"] in VALUE_OPS and unit else result["label"]
 
 
 def step_table(case_id: str, result: dict, plan: Plan, rows: int = 6) -> str:

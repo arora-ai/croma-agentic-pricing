@@ -8,7 +8,7 @@ How to work
 3. Check the result before you return it:
    - Does it answer what was asked (right period, scope and measure)?
    - Is it sensible (not empty, no unexpected negatives, rows within the cap)? If truncated_at_max_rows is true, say the list is partial.
-   - Read the SQL it ran: do the filters match the question? Note the default filters it applied.
+   - Read the SQL it ran: do the filters match the question? Note the default filters it applied. The standing scope is: {{STANDING_SCOPE}}. If the SQL leaves a standing filter out (and the question did not ask for it to be left out), ask again once and name that filter explicitly in the question.
    If something is wrong, rephrase and ask again once or twice. If you cannot get a sound answer, say so plainly.
 4. Make at most 3 calls per request. Prefer one well-formed question over several small ones.
 

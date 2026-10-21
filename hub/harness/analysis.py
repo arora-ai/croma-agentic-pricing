@@ -19,7 +19,7 @@ def render(case_id: str, plan: Plan, data: dict, results: list[dict], gathered: 
     ok = [r for r in results if r.get("ok") and r["op"] not in ("reconcile", "materiality")]
     shown = [r for r in ok if r["table"] in cited or any(o["id"] in cited for o in r["outputs"].values())][:2] or ok[:1]
     for r in shown:
-        lines += [f"**{r['label']}**", core.step_table(case_id, r, plan), ""]
+        lines += [f"**{core.table_title(r, plan)}**", core.step_table(case_id, r, plan), ""]
     if f.drivers:
         lines.append("**What drove it**")
         for i, d in enumerate(f.drivers, 1):

@@ -6,6 +6,7 @@
   "zones": "<comma-separated geography names the business uses, for example zone names>",
   "channels": "<the sales channels, for example Stores (offline), Online (website and marketplace) or Quick Commerce>",
   "categories": "<a handful of example product categories, classes or brands, for example Laptops, Air Conditioners, Mobile Accessories>",
+  "standing_scope": "<The filters every question must carry unless the user asks otherwise, in one sentence, for example: Merchandise articles only, with Miscellaneous and Charges excluded.>",
 
   "facts": [
     "<One fact per line. State what the data space can and cannot do, so the planner does not plan around data that does not exist.>",

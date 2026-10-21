@@ -166,6 +166,9 @@ a.ghost { text-decoration: none; color: inherit; }
 @keyframes dotpulse { 50% { opacity: .35; } }
 .topology .badge { fill: var(--c); }
 .topology .badge-text { fill: #fff; font-size: 10px; font-weight: 700; }
+.topology .wdot { fill: #e2e2e8; transition: fill .25s; }
+.topology .wdot.used { fill: var(--c); opacity: .55; }
+.topology .wdot.on { fill: var(--c); animation: dotpulse 1s infinite; }
 
 /* telemetry */
 .telemetry { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }

@@ -16,7 +16,8 @@ from harness.schemas import AnalysisPlan, ResearchPlan  # noqa: E402
 from studio import ledger  # noqa: E402
 
 CATEGORY = {"columns": ["category", "cur_nmv", "cur_profit", "base_nmv", "base_profit"],
-            "rows": [["Phones", 150, 15, 100, 10], ["Laptops", 50, 12.5, 100, 20]], "sql": "select 1"}
+            "rows": [["Phones", 150, 15, 100, 10], ["Laptops", 50, 12.5, 100, 20]],
+            "sql": "SELECT category FROM nlc WHERE ArticleTypeCategory = 'Merchandise' AND `NLC Available` = 'Yes' GROUP BY category"}
 CLASS = {"columns": ["class", "cur_nmv", "base_nmv"], "rows": [["Gaming", 30, 60], ["Thin and light", 20, 40]], "sql": "select 2"}
 OFFICIAL = {"columns": ["cur_margin_pct", "base_margin_pct"], "rows": [[13.75, 15.0]], "sql": "select 3"}  # the data space's own margin %: it agrees with the breakdown
 OFFICIAL_ELSEWHERE = {"columns": ["cur_margin_pct", "base_margin_pct"], "rows": [[11.92, 10.88]], "sql": "select 3"}  # a different basis: it does not
@@ -385,6 +386,39 @@ def test_steps_that_compare_figures_run_after_the_steps_they_read_and_follow_up_
     out = core.renumber(fu)
     assert [q.id for q in out.questions] == ["f1", "f2"] and [s.id for s in out.steps] == ["x1", "x2", "x3"]
     assert out.steps[0].source == "f1" and out.steps[1].params == {"a": "x1.current_rate", "b": "f2:#0:cur_margin_pct"}
+
+
+def test_the_filters_the_data_space_applied_reach_the_workers():
+    from harness import core
+
+    seen = {}
+
+    def analyst(body):
+        seen["data"] = body["evidence"]["data"]
+        return good_findings(body)
+
+    script = Script(analysis_plan=PLAN, analysis_findings=analyst, review_analysis=ACCEPT)
+    run, _saved = run_harness("analysis", "C-h17", script, {})  # {} means no data, so give it some
+    assert run.status == "failed"
+    run, _saved = run_harness("analysis", "C-h18", script, {"by category": CATEGORY})
+    assert run.status == "done" and next(d for d in seen["data"] if d["id"] == "q1")["filters"] == ["ArticleTypeCategory = 'Merchandise' AND NLC Available = 'Yes'"]
+    sql = "WITH a AS (SELECT x FROM t WHERE `Channel_Flag` = 'Offline' AND g NOT IN ('M','C') GROUP BY x), b AS (SELECT y FROM u WHERE flag = 'Yes') SELECT * FROM a JOIN b"
+    assert core.where_filters(sql) == ["Channel_Flag = 'Offline' AND g NOT IN ('M','C')", "flag = 'Yes'"]
+    assert core.where_filters("SELECT 1") == [] and core.where_filters("") == []
+
+
+def test_figures_and_table_titles_are_written_the_way_a_business_reader_expects():
+    from harness import core
+    from harness.schemas import AnalysisPlan
+
+    assert core.shown(-16.5612, "value", "\u20b9 Cr") == "-\u20b916.56 Cr" and core.shown(154.59, "value", "\u20b9 Cr") == "\u20b9154.59 Cr"
+    assert core.shown(-1.254, "pp", "\u20b9 Cr") == "-1.25 pp" and core.shown(10.877, "pct", "\u20b9 Cr") == "10.88%" and core.shown(None, "pct", "") == "n/a"
+    assert core.shown(2205.0, "value", "units") == "2,205.00 units"
+    assert core.fmt_cell("mix_effect_pp", -0.0004) == "0.00" and core.fmt_cell("mix_effect_pp", 0.0396) == "+0.04" and core.fmt_cell("share_pct", 42.857) == "42.9%"
+    plan = AnalysisPlan.model_validate(PLAN)
+    assert core.table_title({"label": "NMV change by category", "op": "contribution"}, plan) == "NMV change by category (\u20b9 Cr)"
+    assert core.table_title({"label": "Margin % change", "op": "rate_mix"}, plan) == "Margin % change"  # its columns say pp and %
+    assert core.table_title({"label": "Units", "op": "contribution", "unit": "units"}, plan) == "Units (units)"
 
 
 def test_worker_replies_are_parsed_leniently_and_repaired_once():

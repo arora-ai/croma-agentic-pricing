@@ -37,6 +37,7 @@ def render(text: str, profile: dict, extra: dict[str, str] | None = None) -> str
     for token, key in PLACEHOLDERS.items():
         text = text.replace("{{" + token + "}}", str(profile[key]))
     text = text.replace("{{DATA_FACTS}}", "\n".join(f"- {f}" for f in profile["facts"]))
+    text = text.replace("{{STANDING_SCOPE}}", str(profile.get("standing_scope") or "the data space's standing filters"))
     for token, value in (extra or {}).items():
         text = text.replace("{{" + token + "}}", value)
     left = re.findall(r"\{\{[A-Z_]+\}\}", text)

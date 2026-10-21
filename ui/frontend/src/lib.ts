@@ -1,4 +1,4 @@
-import { TEAM, type Call, type HubEvent, type NodeKey } from "./types";
+import { TEAM, WORKERS, type Call, type HubEvent, type NodeKey, type StageRow } from "./types";
 
 const POST: NodeKey[] = ["lookup", "research", "analysis", "reporting"];
 
@@ -12,7 +12,7 @@ export function nodeOf(e: HubEvent): NodeKey {
 function depthOf(node: NodeKey, caller: string): number {
   if (node === "cx" || node === "memory") return node === "cx" ? 0 : 1;
   if (POST.includes(node)) return 1;
-  if (TEAM.includes(node)) return 2;
+  if (TEAM.includes(node) || WORKERS.includes(node)) return 2;
   if (node === "data") return caller === "reporting" || TEAM.includes(caller as NodeKey) ? 3 : 2;
   if (node === "genie") return 4;
   if (node === "studio") return TEAM.includes(caller as NodeKey) ? 3 : 2;
@@ -25,6 +25,7 @@ function depthOf(node: NodeKey, caller: string): number {
 export function buildCalls(events: HubEvent[]): Call[] {
   const calls = new Map<string, Call>();
   for (const e of events) {
+    if (e.type === "stage_start" || e.type === "stage_end") continue;
     const node = nodeOf(e);
     const isTool = e.type.startsWith("tool");
     if (e.type === "agent_start" || e.type === "tool_start") {
@@ -43,6 +44,31 @@ export function buildCalls(events: HubEvent[]): Call[] {
   }
   return [...calls.values()].sort((a, b) => a.start - b.start);
 }
+
+/** Pairs the stage events of Analysis and Research runs into one row per stage, in start order. */
+export function buildStages(events: HubEvent[]): StageRow[] {
+  const rows = new Map<string, StageRow>();
+  for (const e of events) {
+    if (e.type === "stage_start") {
+      rows.set(e.id, { id: e.id, turn: e.turn, harness: e.harness ?? "", runId: e.run_id ?? "", stage: e.stage ?? "", start: e.ts });
+    } else if (e.type === "stage_end") {
+      const r = rows.get(e.id);
+      if (r) Object.assign(r, { end: e.ts, ok: e.ok, seconds: e.seconds, summary: e.summary });
+    }
+  }
+  return [...rows.values()].sort((a, b) => a.start - b.start);
+}
+
+/** The steps a user sees for a harness run, each fed by one or more of the hub's internal stages. */
+export const HARNESS_STEPS: { key: string; label: string; stages: string[] }[] = [
+  { key: "scope", label: "Plan", stages: ["scope"] },
+  { key: "data", label: "Get data", stages: ["gather", "gather_2"] },
+  { key: "compute", label: "Compute", stages: ["columns", "compute", "evaluate", "columns_2", "compute_2"] },
+  { key: "conclude", label: "Conclude", stages: ["conclude", "conclude_2"] },
+  { key: "verify", label: "Verify figures", stages: ["verify"] },
+  { key: "challenge", label: "Challenge", stages: ["challenge", "revise", "verify_2"] },
+  { key: "deliver", label: "Deliver", stages: ["deliver"] },
+];
 
 export function callTitle(c: Call): string {
   if (c.kind === "agent") return c.node === "cx" ? "CX agent" : `${c.node[0].toUpperCase()}${c.node.slice(1)} agent`;

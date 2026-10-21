@@ -1,8 +1,9 @@
 import { ArrowUp, Check, Copy, Download, FileText, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { buildCalls, fmtSeconds, isReport } from "../lib";
+import { buildCalls, buildStages, fmtSeconds, isReport } from "../lib";
 import type { State } from "../store";
-import { NODES, type Call, type Message } from "../types";
+import { NODES, type Call, type Message, type StageRow } from "../types";
+import { HarnessProgress } from "./HarnessProgress";
 import { Markdown } from "./Markdown";
 import { ReportCard, ReportProgress, isReportRun } from "./ReportCard";
 
@@ -27,6 +28,10 @@ function workingLine(calls: Call[]): string {
   if (last.node === "data") return "Data agent is fetching figures";
   if (last.node === "cx") return "CX agent is reviewing your request";
   if (last.node === "reporting") return "Editor is running the report team";
+  if (last.node === "scoper") return "Planning the analysis";
+  if (last.node === "analyst") return "Analyst is reading the evidence";
+  if (last.node === "critic") return "Critic is challenging the conclusion";
+  if (last.node === "analysis" || last.node === "research") return `${NODES[last.node].label} is running`;
   return `${NODES[last.node].label} agent is working`;
 }
 
@@ -54,7 +59,7 @@ function ReportActions({ text }: { text: string }) {
   );
 }
 
-function Bubble({ m, calls, running }: { m: Message; calls: Call[]; running: boolean }) {
+function Bubble({ m, calls, stages, running }: { m: Message; calls: Call[]; stages: StageRow[]; running: boolean }) {
   if (m.role === "user") return <div className="msg user"><div className="bubble">{m.text}</div></div>;
   const waiting = m.status === "streaming" && !m.text;
   const report = m.status === "done" && isReport(m.text);
@@ -70,6 +75,7 @@ function Bubble({ m, calls, running }: { m: Message; calls: Call[]; running: boo
           </div>
         )}
         {m.status === "streaming" && isReportRun(calls) && <ReportProgress calls={calls} />}
+        {m.status === "streaming" && stages.length > 0 && <HarnessProgress stages={stages} />}
         {m.text && (m.status === "error" ? <div className="error-note">{m.text}</div> : <>{report && <ReportActions text={m.text} />}<Markdown>{m.text}</Markdown></>)}
         {published && <ReportCard caseId={published.caseId!} n={published.detail?.result?.report_number} />}
         {m.status === "streaming" && m.text && running && <span className="caret" />}
@@ -90,6 +96,11 @@ export function Chat({ state, onSend }: { state: State; onSend: (t: string) => v
   const callsByTurn = useMemo(() => {
     const map = new Map<number, Call[]>();
     for (const c of buildCalls(state.events)) map.set(c.turn, [...(map.get(c.turn) ?? []), c]);
+    return map;
+  }, [state.events]);
+  const stagesByTurn = useMemo(() => {
+    const map = new Map<number, StageRow[]>();
+    for (const s of buildStages(state.events)) map.set(s.turn, [...(map.get(s.turn) ?? []), s]);
     return map;
   }, [state.events]);
 
@@ -124,7 +135,7 @@ export function Chat({ state, onSend }: { state: State; onSend: (t: string) => v
           </div>
         ) : (
           <div className="thread">
-            {state.messages.map((m) => <Bubble key={m.id} m={m} calls={callsByTurn.get(m.turn) ?? []} running={state.running} />)}
+            {state.messages.map((m) => <Bubble key={m.id} m={m} calls={callsByTurn.get(m.turn) ?? []} stages={stagesByTurn.get(m.turn) ?? []} running={state.running} />)}
           </div>
         )}
       </div>
