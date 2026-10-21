@@ -21,7 +21,7 @@ from pathlib import Path
 from azure.ai.projects.models import MCPTool, MemorySearchOptions, MemorySearchPreviewTool, PromptAgentDefinition, Reasoning
 
 from agents import data_profile
-from agents.memory_store import MEMORY_SCOPE, MEMORY_STORE
+from agents.memory_store import MEMORY_STORE, MEMORY_TOOL_SCOPE
 
 HERE = Path(__file__).parent
 MODEL = os.getenv("AGENT_MODEL", "gpt-5.4-mini")
@@ -65,7 +65,7 @@ def build(hub_url: str, allow_example: bool = False) -> dict[str, PromptAgentDef
 
     tools = {
         "cx": [context(["create_case", "get_case"]), agents(["ask_lookup_agent", "ask_research_agent", "ask_analysis_agent", "ask_reporting_agent", "wait_for_agent"]),
-               MemorySearchPreviewTool(memory_store_name=MEMORY_STORE, scope=MEMORY_SCOPE, update_delay=int(os.getenv("MEMORY_UPDATE_DELAY", "5")),
+               MemorySearchPreviewTool(memory_store_name=MEMORY_STORE, scope=MEMORY_TOOL_SCOPE, update_delay=int(os.getenv("MEMORY_UPDATE_DELAY", "5")),
                                        search_options=MemorySearchOptions(max_memories=8))],
         "lookup": [agents(ask)],
         "research": [agents(ask), context(["get_case", "save_finding"])],
