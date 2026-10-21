@@ -27,6 +27,9 @@ produce a designed, audited business report (Word, with charts and an evidence a
   (what "category drivers" means, the purpose, the depth), offers options with a suggested default, and proceeds when you say "go with your suggestions".
   Plain lookups skip all of that. See `agents/prompts/cx.md`.
 - **Lookup** answers one-figure questions on a fast path. **Analysis** decomposes a number (what happened, how big). **Research** tests causes (why, is X true).
+  In v2 both are harnesses (`hub/harness/`): code owns the stages, the arithmetic and the checks, and three model workers (Scoper, Analyst, Critic) reason inside them. Drivers are
+  computed exactly (rate versus mix, price versus volume versus mix), every figure is traced to the data, and research hypotheses are decided by rules over computed figures.
+  See [`docs/V2.md`](docs/V2.md).
 - **Reporting** is a harness, not one call: an Editor runs a team (Planner, Insight analyst, Strategist, Writer, Reviewer) that shares a per-case workspace. Every data result gets
   an id in an **evidence ledger**; tables and charts are drawn from ledger rows, never typed by a model; a **number audit** traces every figure in the text to a result or a recorded
   calculation and **blocks publishing** while any is untraced. See [The report studio](#the-report-studio).
@@ -41,12 +44,13 @@ The full target architecture (including later phases such as API gateways, Teams
 | `agents/` | The Foundry agents: instructions (`prompts/*.md`), tool wiring and models (`definitions.py`), deploy and memory scripts, and `data_profile.py` |
 | `config/` | `data_profile.example.json`: describes your data space to the agents (copy to `data_profile.json`) |
 | `hub/` | The tools hub, one container with four MCP servers: data tool, agent bridge, case context, report studio. `hub/backends/` holds the data backends |
-| `hub/studio/` | The report studio: ledger, calc, audit, renderers, `playbook.md` (what a good report is) |
+| `hub/harness/` | v2: the Analysis and Research harnesses: runtime, pipeline, typed worker contracts, token governor |
+| `hub/studio/` | The report studio: ledger, calc, audit, renderers, `playbook.md`, and the deterministic analytics engine (`analytics.py`, `analyze.py`) |
 | `integrations/genie/` | How to connect your Genie space or data agent, an example custom backend, and `try_question.py` |
 | `infra/` | PowerShell deploy scripts and `config.example.ps1` |
 | `ui/` | The chat UI: FastAPI backend and React front end, with an admin pane (agent network, telemetry, case file, memory) |
 | `tests/` | Unit tests (no Azure needed) and small tools for testing a live deployment |
-| `docs/` | `DEPLOYMENT.md` (the step-by-step deployment runbook) and architecture diagrams |
+| `docs/` | `DEPLOYMENT.md` (the step-by-step deployment runbook), `V2.md` (the harness design and how v2 runs next to v1), `architecture.md` (diagrams) |
 
 ## Prerequisites
 
@@ -100,8 +104,8 @@ Follow [`integrations/genie/README.md`](integrations/genie/README.md). In short:
 | `infra/config.ps1` | Subscription, resource group, ACR, Container Apps environment, Foundry account and project, and the `Genie` block (backend, host, space id, auth, tool description) |
 | `config/data_profile.json` | Date coverage, fiscal year, zones, channels, categories, and planning facts, rendered into the agent prompts at deploy time |
 | `.env` | `HUB_URL`, `HUB_API_KEY`, `FOUNDRY_PROJECT_ENDPOINT`: written by `deploy_hub.ps1`. Secret, git-ignored. See `.env.example` |
-| Shell environment at agent deploy | `AGENT_MODEL`, `AGENT_REASONING_EFFORT`, `REPORT_MODEL`, `REPORT_EFFORT_<ROLE>`, `REPORT_MODEL_<ROLE>`, `MEMORY_STORE`, `MEMORY_SCOPE` |
-| Hub container app settings | `GENIE_BACKEND`, `DATABRICKS_HOST`, `GENIE_SPACE_ID`, `DATABRICKS_AUTH`, `CUSTOM_BACKEND`, `GENIE_TOOL_DESCRIPTION`, `GENIE_MAX_ROWS`, `DATA_PARALLELISM`, `AGENT_CALL_TIMEOUT_S` (set from `infra/config.ps1`) |
+| Shell environment at agent deploy | `NAME_PREFIX`, `AGENT_MODEL`, `AGENT_REASONING_EFFORT`, `REPORT_MODEL`, `REPORT_EFFORT_<ROLE>`, `REPORT_MODEL_<ROLE>`, `WORKER_MODEL`, `WORKER_MODEL_<ROLE>`, `WORKER_EFFORT_<ROLE>`, `MEMORY_STORE`, `MEMORY_SCOPE` |
+| Hub container app settings | `NAME_PREFIX`, `HARNESS_MODE`, `GENIE_BACKEND`, `DATABRICKS_HOST`, `GENIE_SPACE_ID`, `DATABRICKS_AUTH`, `CUSTOM_BACKEND`, `GENIE_TOOL_DESCRIPTION`, `GENIE_MAX_ROWS`, `DATA_PARALLELISM`, `AGENT_CALL_TIMEOUT_S`, `WORKER_TPM_BUDGET`, `WORKER_PARALLELISM` (set from `infra/config.ps1`; the full list with defaults is in [`docs/V2.md`](docs/V2.md)) |
 
 ## The report studio
 
@@ -118,8 +122,9 @@ then **review** (independent critique, with repair rounds) then **publish** (DOC
 ## Testing
 
 ```powershell
-.\.venv\Scripts\python -m pytest tests -q                    # ledger, calc, audit, renderers, studio tools, backends, data profile
+.\.venv\Scripts\python -m pytest tests -q                    # analytics, harnesses (scripted workers), ledger, audit, renderers, studio tools, backends, data profile, prompts
 .\.venv\Scripts\python -m tests.cx_dialog "first turn || reply"   # script a CX conversation (needs a deployment)
+.\.venv\Scripts\python tests\harness_call.py analysis "<brief>"   # run the Analysis (or research) harness on the hub with per-stage timings
 .\.venv\Scripts\python tests\watch.py                        # live view of agent and tool calls on the hub
 .\.venv\Scripts\python tests\studio_call.py audit_report <case_id>     # call a studio tool directly
 .\.venv\Scripts\python tests\fetch_report.py <case_id> 1     # download a published report and render it to page images (Windows with Word)
@@ -132,8 +137,8 @@ then **review** (independent critique, with repair rounds) then **publish** (DOC
 - **A streamed response is cut at about ten minutes.** The UI backend and `chat.py` run the response in background mode and resume the stream from the last event.
 - **Model quota is the ceiling on the report team.** Each deployment has a tokens-per-minute quota shared by all agents on it, and every model turn re-sends the agent's context. The design keeps
   calls few and contexts small and the hub retries a rate-limited run after the 60-second window, but a full report still takes 30+ minutes at modest quotas. A higher quota shortens it noticeably.
-- **State.** Case state (evidence ledger, workspace, case file) is in the hub's memory on a single replica, so a redeploy loses in-flight cases. `GET /state/<case>` exports a case and `POST /state`
-  restores it. A durable store is the next step.
+- **State.** Case state (evidence ledger, workspace, case file, harness runs) is in the hub's memory on a single replica, so a redeploy loses in-flight cases. `GET /state/<case>` exports a case with its
+  runs and `POST /state` restores it. A durable store is the next step.
 - **Data warehouse sizing.** The Data agent may ask up to `DATA_PARALLELISM` (default 4) questions at once; an undersized warehouse queues them and Genie gives up at 90 seconds.
 
 ## Security
@@ -147,10 +152,12 @@ then **review** (independent critique, with repair rounds) then **publish** (DOC
 
 ## Known limits
 
-- Single replica, in-memory case state; single user (memory scope `croma-user-1`); chat history in local SQLite.
-- No API gateways, no user identity pass-through, no Teams channel, no scheduled nudges, no automated evaluations yet.
-- Natural-language-to-SQL can vary between runs: keep the Genie space's instructions and example queries strong, and add an example whenever a question type proves unstable.
-- The report pipeline's stage order is decided by the Editor agent following its prompt. Making it a code-driven state machine with LLM workers is the recommended next step for speed and reliability.
+- Single replica, in-memory case state; single user (memory scope `croma-user-1`) unless the gateway identity in `docs/APIM.md` is configured; chat history in local SQLite.
+- No Teams channel, no scheduled nudges, no automated evaluations yet. The API gateway is documented in `docs/APIM.md`.
+- Natural-language-to-SQL can vary between runs: keep the Genie space's instructions and example queries strong, and add an example whenever a question type proves unstable. The Analysis and Research
+  harnesses detect basis differences (reconciles against the data space's own figures, the filters of each query shown to the Critic) but cannot make the data space deterministic.
+- The Reporting pipeline's stage order is still decided by the Editor agent following its prompt. The harness runtime from v2 is ready for it to become a code-driven pipeline with model workers
+  (the recommended next step for speed and reliability).
 
 ## License
 

@@ -40,8 +40,8 @@ flowchart TB
 
         subgraph POST["POST AGENTS: no fixed order, each calls the Data agent as often as it needs"]
             direction LR
-            RES["<b>RESEARCH AGENT</b><br/><i>Post: investigates</i><br/>• researches a topic or anomaly<br/>• asks the Data agent, reads,<br/>asks again as leads appear"]
-            ANA["<b>ANALYSIS AGENT</b><br/><i>Post: analyses</i><br/>• analyses a business KPI<br/>• drivers, trends, variance"]
+            RES["<b>RESEARCH HARNESS</b><br/><i>Post: investigates</i><br/>• hypotheses with testable rules<br/>• data via the Data agent, maths by code<br/>• rules decide supported or ruled out<br/>• critic challenges the conclusion"]
+            ANA["<b>ANALYSIS HARNESS</b><br/><i>Post: analyses</i><br/>• plan, data, exact drivers<br/>• rate vs mix, price vs volume vs mix<br/>• every figure traced to the data<br/>• critic reviews before it returns"]
             REP["<b>REPORTING AGENT: editor</b><br/><i>Post: reports</i><br/>• runs the report team<br/>• audits and publishes<br/>• designed DOCX, prescriptive"]
             LKP["<b>LOOKUP AGENT</b><br/><i>Post: answers</i><br/>• plain 'talk to my data' questions<br/>• one question, one figure<br/>• escalates if it needs explaining"]
             LKP ~~~ RES ~~~ ANA ~~~ REP
@@ -145,7 +145,7 @@ flowchart TB
 | **CX agent** | Owns the conversation. Collects and confirms the right details before any analysis runs, then routes. It can also open a conversation from a nudge or a schedule later. | Query data or analyse anything itself. |
 | **Data agent** | The single path to data. Frames the question for Genie, calls it as a tool when needed, sanity-checks the answer and returns it with its source. | Analyse, recommend or write reports. |
 | **Lookup agent** | The fast path for plain questions such as "how many sales in March". No case, no confirmation round: it states the interpretation it used, asks the Data agent once and returns the figure. If the question needs explaining, it hands back to CX to route to Analysis. | Analyse, explain or compare drivers. |
-| **Research and Analysis agents** | Do the thinking. Each decides at run time what data it needs and asks the Data agent, as many times as it takes. | Reach data except through the Data agent. |
+| **Research and Analysis harnesses** (v2) | Do the thinking, as a harness: code owns the stages, the arithmetic and the checks, and three model workers (Scoper, Analyst, Critic) reason inside them. They decide what to ask the Data agent from the brief and the evidence, and ask as many questions as the plan and one follow-up round need. See section 4. | Reach data except through the Data agent; do arithmetic with a model; show a figure that is not in the evidence ledger. |
 | **Reporting agent (editor) and the report team** | The editor runs a small team on a deep-reasoning model: Planner (what the report should say and what evidence it needs), Insight analyst (reconcile, decompose, test explanations), Strategist (sized, owned actions), Writer (the document), Reviewer (independent critique). Each reads and writes a shared workspace; the editor decides when it is good enough and publishes. | Write a number that is not in the evidence ledger. |
 | **Report studio** | Holds the evidence ledger (every data result and every calculation has an id), audits that each figure in the text traces to it, and renders the DOCX and HTML with charts and an evidence appendix. | Hold business logic or judgement. |
 | **Shared case context** | Keeps the request, the findings so far and the data pulled, so Reporting can write from what Research and Analysis already established. | Store raw data extracts longer than needed. |
@@ -156,7 +156,7 @@ flowchart TB
 
 ## 2. How a request flows
 
-There is no fixed pipeline: after hand-off the post agents choose their own next step. This is one typical run.
+There is no fixed pipeline between the specialists: after hand-off the post agents choose their own next step. (Inside Analysis and Research, the order of the stages is fixed by code: see section 4. The sequence below is the v1 view of one typical run, kept because the hand-offs between specialists are unchanged.)
 
 ```mermaid
 sequenceDiagram
@@ -210,3 +210,40 @@ sequenceDiagram
 3. **Routing, not a script.** The CX agent hands over a confirmed request, and the post agents decide their own next steps.
 4. **User identity travels with the call**, so Unity Catalog can apply the right row and column access for that person.
 5. **Open design items** from the whiteboard: per-user controls and maximum query size or cost (gateway), data caching, best practice for consuming data, and the ML model. Evaluations is deferred.
+
+## 4. Inside an Analysis or Research run (v2)
+
+Analysis and Research are harnesses. The order of the stages, the retries, the arithmetic, the checks and the stopping rules are code (`hub/harness/`); the language models do only the reasoning inside a stage, and each returns JSON that is validated before it is used.
+
+```mermaid
+flowchart LR
+    classDef code fill:#f0fff4,stroke:#2f855a,color:#1c4532
+    classDef llm fill:#faf5ff,stroke:#6b46c1,color:#322659
+    classDef dataq fill:#fffaf0,stroke:#c05621,color:#5f370e
+
+    B["Brief from CX<br/>with the agreed interpretation"] --> S
+    S["<b>scope</b><br/>Scoper turns the brief into<br/>data questions, analytics steps,<br/>and (research) hypotheses with rules"]:::llm
+    S --> G
+    G["<b>evidence</b><br/>questions to the Data agent in parallel<br/>columns mapped, analytics run"]:::code
+    G <--> D["Data agent<br/>then Genie"]:::dataq
+    G --> E["<b>evaluate</b> (research)<br/>each hypothesis rule applied<br/>to its computed figures"]:::code
+    E --> C
+    G --> C
+    C["<b>conclude</b><br/>Analyst reads the evidence,<br/>writes findings, or asks for<br/>one follow-up round"]:::llm
+    C -->|"follow-up"| G
+    C --> V["<b>verify</b><br/>every figure traced to the<br/>evidence ledger; one repair,<br/>then untraceable parts removed"]:::code
+    V --> K["<b>challenge</b><br/>Critic looks for what is wrong<br/>or missing; one fix or one<br/>follow-up round allowed"]:::llm
+    K --> R["<b>deliver</b><br/>brief rendered from the evidence,<br/>findings saved on the case"]:::code
+```
+
+| Stage | Who | What is guaranteed |
+|---|---|---|
+| scope | Scoper (model, medium effort) | The plan parses into typed models. A decomposed ratio must be reconciled with the data space's own figure for that ratio, or the plan is refused with the exact fix. |
+| evidence | code | Questions run in parallel through the Data agent (the only door to data). Each answer is mapped to its ledger result. Column names are matched by code; the Scoper is asked only when a column is really missing. Rate and mix, price and volume and mix, contribution, target gap, concentration, trend and reconcile are computed exactly: the parts add up to the total change, and each result carries that check. |
+| evaluate | code | Research hypotheses are supported, not supported, ruled out or inconclusive by their stated rules over computed figures, not by opinion. |
+| conclude | Analyst (model, high effort) | Quotes only figures from the evidence, each with the ids it rests on. Can request one follow-up round (at most three questions, four steps). |
+| verify | code, then Analyst once | Every number in the text is traced to the ledger (rounding and unit changes allowed); every cited id must exist. One repair by the Analyst, then anything still untraceable is removed, and the reader is told. |
+| challenge | Critic (model, high effort) | Compares the filters each question applied, checks sizes against materiality, sign and scale, and what was not checked. A blocking or major issue triggers one revision (and optionally one follow-up round). |
+| deliver | code | The brief is built from the ledger: headline, driver tables straight from the engine, checks that passed, basis, caveats. Findings are saved on the case for Reporting to reuse. |
+
+Every stage saves its output on the run. An interrupted run resumes at the stage it reached (the stage list is in `GET /runs/<case>`), and runs travel with the case when it is exported and restored.
