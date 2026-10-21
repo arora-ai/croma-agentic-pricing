@@ -2,7 +2,10 @@
 .env
 .env.*
 !.env.example
+.apim.env
+.connection-body.json
 infra/config.ps1
+infra/apim/.build/
 config/data_profile.json
 *.pem
 *.key

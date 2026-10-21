@@ -1,0 +1,20 @@
+<!--
+  Operation policy for starting a Genie conversation (a new question). Each one starts a SQL warehouse query, so it has a stricter limit than the polling
+  calls that follow it. The limit comes BEFORE the API policy, so every attempt counts, including one the API policy refuses (wrong space id), which keeps a
+  misbehaving caller from probing for free. Authentication, the space check and the backend are inherited from the API policy.
+-->
+<policies>
+  <inbound>
+    <rate-limit-by-key calls="__DATA_QUESTIONS__" renewal-period="60" counter-key="@("data-questions:" + context.Subscription.Id)" remaining-calls-header-name="x-questions-remaining" />
+    <base />
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

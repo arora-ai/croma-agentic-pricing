@@ -252,6 +252,19 @@ The UI signs in to Foundry as **you** (your `az login`), so you need the Foundry
 
 **Report timing:** a full report currently takes **30 minutes or more**, mostly the deep analysis stage, and the report model's token quota is the main limit. Raising that quota shortens it noticeably. Treat the first report as a test of the plumbing, and run it when nobody else is using the same model deployment.
 
+### 7.1 Optional: put Azure API Management in front
+
+For many users, per-user identity, throttling and one place to log everything, run the chat UI as a container app behind a **front gateway**, route the agents' tool calls through a **tool gateway**, and the hub's Databricks calls through a **data tool gateway**. It is a separate, additive deployment into its own resource group (the hub, the agents and the connections are not touched until you switch them):
+
+```powershell
+.\infra\apim\create_entra_app.ps1 -TestClient     # optional: the Entra app registration for sign-in
+.\infra\apim\deploy_apim.ps1 -EnableJwt           # chat container app, API Management, the three gateways
+.\infra\apim\test_gateway.ps1                     # live checks
+.\infra\apim\teardown.ps1 -Yes                    # remove it all (Basic v2 is billed by the hour)
+```
+
+Everything about it, including how to switch the Foundry connections and the hub over, is in [`APIM.md`](APIM.md).
+
 ## 8. Day-2 operations
 
 | Task | How |

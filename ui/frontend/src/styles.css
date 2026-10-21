@@ -97,6 +97,7 @@ a.ghost { text-decoration: none; color: inherit; }
 .viewer-bar { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: #fff; border-bottom: 1px solid var(--border); }
 .viewer-bar .spacer { flex: 1; }
 .viewer iframe { flex: 1; border: 0; width: 100%; }
+.viewer-wait { flex: 1; display: grid; place-items: center; color: var(--muted); font-size: 14px; }
 .rprogress { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 4px; margin: 6px 0 8px; padding: 0; }
 .rprogress li { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--faint); padding: 3px 10px 3px 8px; border: 1px solid var(--border); border-radius: 99px; background: var(--bg); }
 .rprogress li i { width: 7px; height: 7px; border-radius: 50%; background: #d4d4da; }

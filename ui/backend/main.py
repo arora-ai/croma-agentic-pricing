@@ -6,7 +6,10 @@ Streams one chat turn to the browser as server-sent events, merging two sources:
 It also keeps the conversation history (SQLite) and exposes the user's Foundry memory (preferences) for viewing and editing.
 
 Run from the agentic-engine folder:   uvicorn ui.backend.main:app --port 8000
-Signs in to Foundry with your az login; reads HUB_URL and HUB_API_KEY from ../../.env.
+Signs in to Foundry with your az login (the managed identity when deployed); reads HUB_URL and HUB_API_KEY from ../../.env or the environment.
+
+Behind an API gateway (set GATEWAY_KEY) the app is multi-user: the gateway says who is calling, and conversations and memory are kept per user
+(see identity.py). Without GATEWAY_KEY it behaves as a single-user app, as before.
 """
 from __future__ import annotations
 
@@ -21,7 +24,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -29,14 +32,22 @@ from pydantic import BaseModel
 from agents.deploy_agents import load_env, project
 from agents.definitions import NAMES
 from agents.memory_store import MEMORY_SCOPE, MEMORY_STORE
-from ui.backend import store
+from ui.backend import diagnostics, store
+from ui.backend.identity import CorrelationId, Identity, gateway_key, memory_scope, require_identity
 
 DIST = Path(__file__).parent.parent / "frontend" / "dist"
 CX_AGENT = os.getenv("CX_AGENT", NAMES["cx"])
 MODEL = os.getenv("AGENT_MODEL", "gpt-5.4-mini")
 POLL_SECONDS = 0.5
+# Idle connections are cut after about four minutes (Azure load balancers, the Container Apps ingress), so behind a gateway a long turn needs a signal
+# now and then. A comment line is invisible to the browser's event parser. 0 (the default) sends none, so the stream is unchanged for local use.
+HEARTBEAT_SECONDS = float(os.getenv("SSE_HEARTBEAT_S", "0"))
 
-app = FastAPI(title="Croma assistant")
+# Every API route needs an identity (a no-op without GATEWAY_KEY). Behind the gateway the interactive API docs are not served.
+app = FastAPI(title="Croma assistant", dependencies=[Depends(require_identity)],
+              **({"docs_url": None, "redoc_url": None, "openapi_url": None} if gateway_key() else {}))
+app.add_middleware(CorrelationId)
+app.include_router(diagnostics.router)
 
 
 @app.on_event("startup")
@@ -87,7 +98,7 @@ class MemoryRequest(BaseModel):
 # ---------------------------------------------------------------- status and cases
 
 @app.get("/api/health")
-async def health():
+async def health(who: Identity = Depends(require_identity)):
     async with httpx.AsyncClient(timeout=10) as http:
         genie_backend = "unknown"
         try:
@@ -97,7 +108,13 @@ async def health():
         except Exception:
             hub = False
     return {"hub": hub, "hub_url": _env()["HUB_URL"], "project": _env()["FOUNDRY_PROJECT_ENDPOINT"].rsplit("/", 1)[-1], "cx_agent": CX_AGENT,
-            "memory_store": MEMORY_STORE, "memory_scope": MEMORY_SCOPE, "genie_backend": genie_backend}
+            "memory_store": MEMORY_STORE, "memory_scope": memory_scope(who, MEMORY_SCOPE), "genie_backend": genie_backend}
+
+
+@app.get("/api/me")
+def me(who: Identity = Depends(require_identity)):
+    """Who the API believes is calling: the signed-in user when behind the gateway, otherwise the default single user (user_id null)."""
+    return {"user_id": who.user_id or None, "name": who.name or None, "authenticated": who.is_user, "gateway": bool(gateway_key())}
 
 
 @app.get("/api/case/{case_id}")
@@ -139,28 +156,28 @@ async def report_file(case_id: str, n: int, ext: str):
 # ---------------------------------------------------------------- conversation history
 
 @app.get("/api/conversations")
-def conversations():
-    return store.list_conversations()
+def conversations(who: Identity = Depends(require_identity)):
+    return store.list_conversations(who.user_id)
 
 
 @app.get("/api/conversations/{conversation_id}")
-def conversation(conversation_id: str):
-    found = store.get_conversation(conversation_id)
+def conversation(conversation_id: str, who: Identity = Depends(require_identity)):
+    found = store.get_conversation(conversation_id, who.user_id)
     if not found:
         raise HTTPException(404, "Conversation not found")
     return found
 
 
 @app.patch("/api/conversations/{conversation_id}")
-def rename_conversation(conversation_id: str, body: RenameRequest):
-    if not store.rename(conversation_id, body.title):
+def rename_conversation(conversation_id: str, body: RenameRequest, who: Identity = Depends(require_identity)):
+    if not store.rename(conversation_id, body.title, who.user_id):
         raise HTTPException(404, "Conversation not found")
     return {"ok": True}
 
 
 @app.delete("/api/conversations/{conversation_id}")
-def delete_conversation(conversation_id: str):
-    if not store.delete(conversation_id):
+def delete_conversation(conversation_id: str, who: Identity = Depends(require_identity)):
+    if not store.delete(conversation_id, who.user_id):
         raise HTTPException(404, "Conversation not found")
     try:
         _openai().conversations.delete(conversation_id)
@@ -177,9 +194,11 @@ def _memory_item(m) -> dict:
 
 
 @app.get("/api/memory")
-async def memory():
+async def memory(who: Identity = Depends(require_identity)):
+    scope = memory_scope(who, MEMORY_SCOPE)
+
     def load():
-        items = list(_project().beta.memory_stores.list_memories(MEMORY_STORE, scope=MEMORY_SCOPE, limit=100))
+        items = list(_project().beta.memory_stores.list_memories(MEMORY_STORE, scope=scope, limit=100))
         return [_memory_item(m) for m in items]
     try:
         return await asyncio.to_thread(load)
@@ -188,23 +207,31 @@ async def memory():
 
 
 @app.post("/api/memory")
-async def add_memory(body: MemoryRequest):
+async def add_memory(body: MemoryRequest, who: Identity = Depends(require_identity)):
     text = body.content.strip()
     if not text:
         raise HTTPException(400, "Empty preference")
-    created = await asyncio.to_thread(lambda: _project().beta.memory_stores.create_memory(MEMORY_STORE, scope=MEMORY_SCOPE, content=text, kind="user_profile"))
+    scope = memory_scope(who, MEMORY_SCOPE)
+    created = await asyncio.to_thread(lambda: _project().beta.memory_stores.create_memory(MEMORY_STORE, scope=scope, content=text, kind="user_profile"))
     return _memory_item(created)
 
 
 @app.delete("/api/memory/{memory_id}")
-async def delete_memory(memory_id: str):
+async def delete_memory(memory_id: str, who: Identity = Depends(require_identity)):
+    if who.is_user:
+        # Deleting is by memory id only, so with several users first check that the memory is in this user's scope.
+        scope = memory_scope(who, MEMORY_SCOPE)
+        owned = await asyncio.to_thread(lambda: {m.memory_id for m in _project().beta.memory_stores.list_memories(MEMORY_STORE, scope=scope, limit=100)})
+        if memory_id not in owned:
+            raise HTTPException(404, "Memory not found")
     await asyncio.to_thread(lambda: _project().beta.memory_stores.delete_memory(MEMORY_STORE, memory_id))
     return {"ok": True}
 
 
 @app.delete("/api/memory")
-async def clear_memory():
-    await asyncio.to_thread(lambda: _project().beta.memory_stores.delete_scope(MEMORY_STORE, scope=MEMORY_SCOPE))
+async def clear_memory(who: Identity = Depends(require_identity)):
+    scope = memory_scope(who, MEMORY_SCOPE)
+    await asyncio.to_thread(lambda: _project().beta.memory_stores.delete_scope(MEMORY_STORE, scope=scope))
     return {"ok": True}
 
 
@@ -252,7 +279,12 @@ def _llm_title(message: str) -> str | None:
 
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, who: Identity = Depends(require_identity)):
+    if who.is_user and req.conversation_id and store.owner_of(req.conversation_id) not in (None, who.user_id):
+        raise HTTPException(404, "Conversation not found")  # somebody else's conversation: do not reveal that it exists
+    scope = memory_scope(who, MEMORY_SCOPE)
+    # The memory search tool resolves its scope from this header when the agent is deployed with scope "{{$userId}}" (see docs/APIM.md); a no-op otherwise.
+    agent_headers = {"extra_headers": {"x-memory-user-id": scope}} if who.is_user else {}
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
     turn_id = uuid.uuid4().hex[:8]
@@ -262,7 +294,7 @@ async def chat(req: ChatRequest):
 
     def run_title(conversation_id: str) -> None:
         title = _llm_title(req.message)
-        if title and store.rename(conversation_id, title):
+        if title and store.rename(conversation_id, title, who.user_id):
             put("title", {"conversation_id": conversation_id, "title": title})
 
     def run_agent() -> None:
@@ -295,7 +327,7 @@ async def chat(req: ChatRequest):
                         base = {"id": item_id, "server": "memory", "tool": "search_memories", "caller": "cx", "ts": _now_ms(), "seq": -3}
                         if kind.endswith("added"):
                             memory_started[item_id] = time.time()
-                            put("hub", {**base, "type": "tool_start", "args": {"scope": MEMORY_SCOPE}})
+                            put("hub", {**base, "type": "tool_start", "args": {"scope": scope}})
                         else:
                             tokens = getattr(getattr(item, "usage", None), "embedding_tokens", None)
                             put("hub", {**base, "type": "tool_end", "ok": True, "summary": "searched your saved preferences",
@@ -318,7 +350,7 @@ async def chat(req: ChatRequest):
             # A long turn (a full report takes many minutes) outlives a single streamed HTTP connection, which the service cuts at about ten minutes.
             # So the response runs in the background, and if the stream drops it is resumed from the last event received.
             stream = client.responses.create(conversation=conversation, input=req.message, stream=True, background=True,
-                                             extra_body={"agent_reference": {"name": CX_AGENT, "type": "agent_reference"}})
+                                             extra_body={"agent_reference": {"name": CX_AGENT, "type": "agent_reference"}}, **agent_headers)
             reconnects = 0
             while not state["done"]:
                 try:
@@ -351,6 +383,7 @@ async def chat(req: ChatRequest):
         logs_acc: list[dict] = []
         conversation_id, turn_no = req.conversation_id, 0
         final_text, final_seconds, status = "", None, "error"
+        share_hub_events = not who.is_user or os.getenv("SHARE_HUB_EVENTS", "").lower() in ("1", "true", "yes", "on")
 
         def out(kind: str, data: dict) -> str:
             if kind == "hub":
@@ -359,14 +392,20 @@ async def chat(req: ChatRequest):
                 logs_acc.append({**data, "ts": _now_ms()})
             return _sse(kind, data)
 
+        async def hub_events(http: httpx.AsyncClient, since: int) -> dict | None:
+            # The hub's event log is not kept per user, so with several users it would show one person's agent calls and SQL to another.
+            # Behind the gateway it is therefore off unless SHARE_HUB_EVENTS is set (a demo with one user at a time, or a private deployment).
+            return await _hub_events(http, since) if share_hub_events else None
+
         async with httpx.AsyncClient(timeout=10) as http:
-            baseline = await _hub_events(http, 10**9)
+            baseline = await hub_events(http, 10**9)
             since = baseline["latest"] if baseline else 0
             started_ms = _now_ms()
             cx_id = f"cx-{turn_id}"
             yield out("hub", {"seq": -1, "ts": started_ms, "type": "agent_start", "id": cx_id, "agent": "cx", "caller": "user", "ask": req.message[:600]})
             threading.Thread(target=run_agent, daemon=True).start()
             finished, last_poll, usage, ok = False, 0.0, {}, True
+            last_beat = time.time()
             while True:
                 try:
                     kind, data = await asyncio.wait_for(queue.get(), timeout=POLL_SECONDS)
@@ -374,7 +413,7 @@ async def chat(req: ChatRequest):
                     kind, data = None, None
                 if kind == "turn":
                     conversation_id = data["conversation_id"]
-                    created = store.ensure_conversation(conversation_id, _heuristic_title(req.message))
+                    created = store.ensure_conversation(conversation_id, _heuristic_title(req.message), who.user_id)
                     turn_no = store.next_turn(conversation_id)
                     store.add_turn(conversation_id, turn_no, req.message)
                     yield out("turn", {**data, "turn": turn_no, "title": _heuristic_title(req.message), "new": created})
@@ -396,11 +435,14 @@ async def chat(req: ChatRequest):
                     if finished:
                         await asyncio.sleep(0.4)
                     last_poll = time.time()
-                    batch = await _hub_events(http, since)
+                    batch = await hub_events(http, since)
                     if batch:
                         since = batch["latest"]
                         for ev in batch["events"]:
                             yield out("hub", ev)
+                if HEARTBEAT_SECONDS and not finished and time.time() - last_beat >= HEARTBEAT_SECONDS:
+                    last_beat = time.time()
+                    yield ": keepalive\n\n"
                 if finished:
                     yield out("hub", {"seq": -2, "ts": _now_ms(), "type": "agent_end", "id": cx_id, "agent": "cx", "caller": "user", "ok": ok,
                                       "seconds": round((_now_ms() - started_ms) / 1000, 1), **usage})

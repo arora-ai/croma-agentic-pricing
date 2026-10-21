@@ -1,6 +1,7 @@
 import { Download, ExternalLink, FileText, ShieldCheck, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { fetchCase, reportUrl } from "../api";
+import { apiFetch, authActive } from "../auth";
 import { TEAM, type Call } from "../types";
 import { Markdown } from "./Markdown";
 
@@ -9,6 +10,46 @@ interface Report {
   title: string;
   markdown: string;
   artifact?: { n: number; docx: string; html: string; audit?: { numbers_checked: number; traced: number; untraced: number; pass: boolean }; sections?: number; evidence?: number };
+}
+
+// The report files are behind the same sign-in as the rest of the API. A plain link or iframe cannot send the access token, so with sign-in on
+// the file is fetched with it and handed to the browser as a local blob. With sign-in off these are ordinary links, as before.
+async function fetchBlobUrl(url: string): Promise<string | null> {
+  const res = await apiFetch(url);
+  return res.ok ? URL.createObjectURL(await res.blob()) : null;
+}
+
+function FileLink({ url, filename, className, newTab, children }: { url: string; filename: string; className: string; newTab?: boolean; children: ReactNode }) {
+  if (!authActive) return <a className={className} href={url} {...(newTab ? { target: "_blank", rel: "noreferrer" } : {})}>{children}</a>;
+  const open = async (e: MouseEvent) => {
+    e.preventDefault();
+    const tab = newTab ? window.open("", "_blank") : null; // opened now, while the click still counts as the user's, and pointed at the file below
+    const blobUrl = await fetchBlobUrl(url);
+    if (!blobUrl) { tab?.close(); return; }
+    if (tab) { tab.location.href = blobUrl; return; }
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = filename;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  };
+  return <a className={className} href={url} onClick={open}>{children}</a>;
+}
+
+function ReportFrame({ url, title }: { url: string; title: string }) {
+  const [src, setSrc] = useState<string | null>(authActive ? null : url);
+  useEffect(() => {
+    if (!authActive) return;
+    let live = true;
+    let made: string | null = null;
+    fetchBlobUrl(url).then((b) => {
+      made = b;
+      if (live) setSrc(b);
+      else if (b) URL.revokeObjectURL(b);
+    });
+    return () => { live = false; if (made) URL.revokeObjectURL(made); };
+  }, [url]);
+  return src ? <iframe title={title} src={src} /> : <div className="viewer-wait">Loading the report…</div>;
 }
 
 function Viewer({ caseId, report, onClose }: { caseId: string; report: Report; onClose: () => void }) {
@@ -24,11 +65,11 @@ function Viewer({ caseId, report, onClose }: { caseId: string; report: Report; o
         <FileText size={16} />
         <strong>{report.title}</strong>
         <span className="spacer" />
-        <a className="ghost sm" href={reportUrl(caseId, n, "docx")}><Download size={14} />Download Word</a>
-        <a className="ghost sm" href={reportUrl(caseId, n, "html")} target="_blank" rel="noreferrer"><ExternalLink size={14} />New tab</a>
+        <FileLink className="ghost sm" url={reportUrl(caseId, n, "docx")} filename={`${caseId}-report-${n}.docx`}><Download size={14} />Download Word</FileLink>
+        <FileLink className="ghost sm" url={reportUrl(caseId, n, "html")} filename={`${caseId}-report-${n}.html`} newTab><ExternalLink size={14} />New tab</FileLink>
         <button className="ghost sm icon" onClick={onClose} aria-label="Close"><X size={15} /></button>
       </div>
-      <iframe title={report.title} src={reportUrl(caseId, n, "html")} />
+      <ReportFrame url={reportUrl(caseId, n, "html")} title={report.title} />
     </div>
   );
 }
@@ -54,7 +95,7 @@ export function ReportCardView({ caseId, report, compact }: { caseId: string; re
       {!compact && <div className="rcard-sum"><Markdown>{report.markdown}</Markdown></div>}
       <div className="rcard-actions">
         <button className="primary sm" onClick={() => setOpen(true)}><FileText size={14} />Open report</button>
-        <a className="ghost sm" href={reportUrl(caseId, a.n, "docx")}><Download size={14} />Download Word</a>
+        <FileLink className="ghost sm" url={reportUrl(caseId, a.n, "docx")} filename={`${caseId}-report-${a.n}.docx`}><Download size={14} />Download Word</FileLink>
       </div>
       {open && <Viewer caseId={caseId} report={report} onClose={() => setOpen(false)} />}
     </div>

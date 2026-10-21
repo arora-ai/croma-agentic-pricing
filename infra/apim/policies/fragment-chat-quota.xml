@@ -1,0 +1,4 @@
+<!--
+  Optional daily quota per user on starting chat turns (the chatTurnsPerDay parameter; 0 leaves this out). Renews every 24 hours.
+-->
+<quota-by-key calls="__CHAT_QUOTA_CALLS__" renewal-period="86400" counter-key="@("chat-day:" + (string)context.Variables["user-id"])" />

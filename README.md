@@ -47,10 +47,10 @@ The full target architecture (including later phases such as API gateways, Teams
 | `hub/harness/` | v2: the Analysis and Research harnesses: runtime, pipeline, typed worker contracts, token governor |
 | `hub/studio/` | The report studio: ledger, calc, audit, renderers, `playbook.md`, and the deterministic analytics engine (`analytics.py`, `analyze.py`) |
 | `integrations/genie/` | How to connect your Genie space or data agent, an example custom backend, and `try_question.py` |
-| `infra/` | PowerShell deploy scripts and `config.example.ps1` |
-| `ui/` | The chat UI: FastAPI backend and React front end, with an admin pane (agent network, telemetry, case file, memory) |
+| `infra/` | PowerShell deploy scripts and `config.example.ps1`. `infra/apim/` is the optional Azure API Management layer (Bicep, policies, deploy, test and teardown scripts) |
+| `ui/` | The chat UI: FastAPI backend and React front end, with an admin pane (agent network, telemetry, case file, memory). `ui/Dockerfile` runs it as a container app |
 | `tests/` | Unit tests (no Azure needed) and small tools for testing a live deployment |
-| `docs/` | `DEPLOYMENT.md` (the step-by-step deployment runbook), `V2.md` (the harness design and how v2 runs next to v1), `architecture.md` (diagrams) |
+| `docs/` | `DEPLOYMENT.md` (the step-by-step deployment runbook), `V2.md` (the harness design and how v2 runs next to v1), `APIM.md` (the three API gateways), `architecture.md` (diagrams) |
 
 ## Prerequisites
 
@@ -145,6 +145,8 @@ then **review** (independent critique, with repair rounds) then **publish** (DOC
 
 - No secret is in this repository. `.env`, `infra/config.ps1` and `config/data_profile.json` are git-ignored; check before every commit that you have not added one.
 - The hub is protected by an API key held in Foundry project connections (not in agent definitions). The hub itself signs in to Foundry and Databricks with its managed identity.
+  With the optional API gateways ([`docs/APIM.md`](docs/APIM.md)) the hub key lives only in Azure API Management, the Foundry connections hold a revocable subscription key, the
+  chat API accepts a user identity only from the gateway, and Databricks is reached with APIM's own identity.
   `DATABRICKS_AUTH=token` (a personal access token) is for quick tests only and is stored as a container app secret.
 - Data calls run as the hub's identity, not as the signed-in user, so row and column security applies to that identity. Per-user pass-through is not built.
 - The UI keeps chat history in a local SQLite file (`ui/backend/data/`, git-ignored). It contains real conversations: do not commit or share it.
@@ -152,8 +154,8 @@ then **review** (independent critique, with repair rounds) then **publish** (DOC
 
 ## Known limits
 
-- Single replica, in-memory case state; single user (memory scope `croma-user-1`) unless the gateway identity in `docs/APIM.md` is configured; chat history in local SQLite.
-- No Teams channel, no scheduled nudges, no automated evaluations yet. The API gateway is documented in `docs/APIM.md`.
+- Single replica, in-memory case state; chat history in local SQLite. Without the API gateway the UI is single user (memory scope `croma-user-1`); behind it, history and memory are per signed-in user ([`docs/APIM.md`](docs/APIM.md)).
+- The API gateways (Azure API Management in front of the chat API, the hub's MCP endpoints and Databricks) are optional and in [`docs/APIM.md`](docs/APIM.md). Data calls still run as the hub's identity, not the signed-in user. No Teams channel, no scheduled nudges, no automated evaluations yet.
 - Natural-language-to-SQL can vary between runs: keep the Genie space's instructions and example queries strong, and add an example whenever a question type proves unstable. The Analysis and Research
   harnesses detect basis differences (reconciles against the data space's own figures, the filters of each query shown to the Critic) but cannot make the data space deterministic.
 - The Reporting pipeline's stage order is still decided by the Editor agent following its prompt. The harness runtime from v2 is ready for it to become a code-driven pipeline with model workers

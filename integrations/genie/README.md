@@ -63,6 +63,7 @@ python integrations\genie\try_question.py "How many stores are there in each zon
 |---|---|---|
 | `managed_identity` (default) | Entra token for Azure Databricks | In Azure: the Container App's managed identity. Locally: your `az login`. With `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` set: that Entra service principal. No secret is stored in the app when it is a managed identity. |
 | `token` | `DATABRICKS_TOKEN` | A personal access token or OAuth token. For a quick test only: it acts as one person and expires. `deploy_hub.ps1` stores it as a container app secret, never in an environment variable in clear. |
+| `apim` | `APIM_SUBSCRIPTION_KEY` | The hub calls Genie through the Azure API Management **data tool gateway** ([`docs/APIM.md`](../../docs/APIM.md)). `DATABRICKS_HOST` is the gateway's URL (`https://<apim>.azure-api.net/dbx`); the hub sends only the subscription key (`Ocp-Apim-Subscription-Key`) and no `Authorization` header. APIM signs in to Databricks with its own managed identity, so that identity (not the hub's) needs the access in step 2: run `grant_hub_access.py --application-id <APIM's application id>` or `deploy_apim.ps1 -GrantDatabricks`. `deploy_hub.ps1` stores the key as a container app secret. |
 
 Calls run as the hub's identity, not as the signed-in user, so Unity Catalog row and column security is applied for that identity. Per-user pass-through
 (on-behalf-of) is not built.

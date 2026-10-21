@@ -10,6 +10,9 @@ from azure.ai.projects.models import MemoryStoreDefaultDefinition, MemoryStoreDe
 NAME_PREFIX = os.getenv("NAME_PREFIX", "croma")
 MEMORY_STORE = os.getenv("MEMORY_STORE", f"{NAME_PREFIX}-user-memory")
 MEMORY_SCOPE = os.getenv("MEMORY_SCOPE", f"{NAME_PREFIX}-user-1")  # the default user; one scope per user when several people share the store
+# The scope the CX agent's memory search tool is deployed with. "{{$userId}}" makes Foundry take the scope from the x-memory-user-id header on each request, which the
+# chat API sets to <MEMORY_SCOPE>-<user id> behind the API gateway: one memory per signed-in user (docs/APIM.md). The default is the one shared scope above.
+MEMORY_TOOL_SCOPE = os.getenv("MEMORY_TOOL_SCOPE", MEMORY_SCOPE)
 CHAT_MODEL = os.getenv("AGENT_MODEL", "gpt-5.4-mini")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
 
