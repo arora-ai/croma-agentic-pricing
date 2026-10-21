@@ -46,7 +46,7 @@ The full target architecture (including later phases such as API gateways, Teams
 | `infra/` | PowerShell deploy scripts and `config.example.ps1` |
 | `ui/` | The chat UI: FastAPI backend and React front end, with an admin pane (agent network, telemetry, case file, memory) |
 | `tests/` | Unit tests (no Azure needed) and small tools for testing a live deployment |
-| `docs/` | Architecture diagrams |
+| `docs/` | `DEPLOYMENT.md` (the step-by-step deployment runbook) and architecture diagrams |
 
 ## Prerequisites
 
@@ -57,6 +57,8 @@ The full target architecture (including later phases such as API gateways, Teams
 - A data source: a Databricks Genie space, or your own data agent. Optional at first: the default `stub` backend lets you deploy and explore everything else.
 
 ## Quick start
+
+**Deploying to a new Azure tenant? Follow the step-by-step runbook: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).** The summary below is the short version.
 
 ```powershell
 # 1. Python environment
