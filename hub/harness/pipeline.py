@@ -35,7 +35,7 @@ class Spec:
     critic_task: str
     critic_on: bool
     evaluate: Callable[[str, Plan, list[dict]], dict] | None  # (case_id, plan, results) -> extra evidence for the analyst, such as hypothesis verdicts
-    render: Callable[..., str]
+    render: Callable[..., str]  # (case_id, plan, result, results, gathered, extras, critique, verified, run) -> the markdown the CX agent relays
     save: Callable[[Ctx, dict, dict], int]  # (ctx, result, extras): saves the result on the case; returns how many findings
 
 
@@ -143,7 +143,7 @@ async def run(ctx: Ctx, spec: Spec) -> dict:
 
     async def deliver() -> dict:
         data = verified["result"]
-        markdown = spec.render(ctx.case_id, plan, data, results, extras, critique, verified, ctx.run)
+        markdown = spec.render(ctx.case_id, plan, data, results, gathered, extras, critique, verified, ctx.run)
         saved = spec.save(ctx, data, extras)
         ids = sorted({r["source"] for r in results if r.get("ok")} | {r["table"] for r in results if r.get("ok")})
         return {"markdown": markdown, "headline": data["headline"], "saved_findings": saved, "evidence": ids, "rounds": 2 if rounds_left == 0 else 1,

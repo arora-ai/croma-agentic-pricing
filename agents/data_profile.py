@@ -31,11 +31,14 @@ def load(allow_example: bool = False) -> dict:
     return data
 
 
-def render(text: str, profile: dict) -> str:
-    """Fills {{COVERAGE}}, {{FISCAL_YEAR}}, {{ZONES}}, {{CHANNELS}}, {{CATEGORIES}} and {{DATA_FACTS}} in a prompt."""
+def render(text: str, profile: dict, extra: dict[str, str] | None = None) -> str:
+    """Fills {{COVERAGE}}, {{FISCAL_YEAR}}, {{ZONES}}, {{CHANNELS}}, {{CATEGORIES}} and {{DATA_FACTS}} in a prompt, plus any placeholders in `extra`
+    (for example {{ANALYTICS_CATALOG}}, generated from the analytics the harness can run)."""
     for token, key in PLACEHOLDERS.items():
         text = text.replace("{{" + token + "}}", str(profile[key]))
     text = text.replace("{{DATA_FACTS}}", "\n".join(f"- {f}" for f in profile["facts"]))
+    for token, value in (extra or {}).items():
+        text = text.replace("{{" + token + "}}", value)
     left = re.findall(r"\{\{[A-Z_]+\}\}", text)
     if left:
         raise ProfileError(f"Unresolved placeholders in a prompt: {sorted(set(left))}")

@@ -59,7 +59,7 @@ def _cell(text: str) -> str:
     return text.replace("|", "/").replace("\n", " ")
 
 
-def render(case_id: str, plan: Plan, data: dict, results: list[dict], extras: dict, critique: dict | None, verified: dict, run: Run) -> str:
+def render(case_id: str, plan: Plan, data: dict, results: list[dict], gathered: dict, extras: dict, critique: dict | None, verified: dict, run: Run) -> str:
     c = ResearchConclusion.model_validate(data)
     verdicts = extras.get("hypotheses", [])
     lines = [f"**{c.headline}**", ""]
@@ -85,12 +85,11 @@ def render(case_id: str, plan: Plan, data: dict, results: list[dict], extras: di
     problems = [*c.caveats, *core.failed_checks(results)]
     if verified["removed"]:
         problems.append("Some supporting detail was left out because its figures could not be traced to the data.")
-    for title, items in (("Ruled out", c.ruled_out), ("Still unknown", c.unknowns), ("Basis", plan.basis), ("Caveats", problems), ("Not checked", (critique or {}).get("missing_checks", [])),
-                         ("Suggested next steps", c.next_steps)):
+    for title, items in (("Ruled out", c.ruled_out), ("Still unknown", c.unknowns), ("Checks passed", core.passed_checks(results)), ("Basis", c.basis or plan.basis), ("Caveats", problems),
+                         ("Not checked", (critique or {}).get("missing_checks", [])), ("Suggested next steps", c.next_steps)):
         if items:
             lines += [f"**{title}**", *[f"- {i}" for i in items], ""]
-    ok = [r for r in results if r.get("ok")]
-    lines.append(f"*Evidence: data results {', '.join(sorted({r['source'] for r in ok})) or 'none'}; tables {', '.join(r['table'] for r in ok)}. Research run {run.id}, case {case_id}.*")
+    lines.append(core.evidence_line(case_id, gathered, results, run.id, "Research"))
     return "\n".join(lines).strip()
 
 

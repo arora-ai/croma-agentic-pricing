@@ -29,7 +29,7 @@ def test_every_prompt_renders_from_a_filled_profile(monkeypatch, tmp_path):
     from agents.definitions import build
 
     agents = build("https://hub.example")
-    assert len(agents) == 11
+    assert len(agents) == 14
     cx = agents["cx"].instructions
     assert "from 2024-04-01 to 2026-03-31" in cx and "North, South" in cx and "{{" not in cx
     assert "- Targets cover Stores only." in agents["planner"].instructions

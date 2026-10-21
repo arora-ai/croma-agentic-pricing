@@ -12,11 +12,11 @@ def section(title: str, items: list[str]) -> list[str]:
     return [f"**{title}**", *[f"- {i}" for i in items], ""] if items else []
 
 
-def render(case_id: str, plan: Plan, data: dict, results: list[dict], extras: dict, critique: dict | None, verified: dict, run: Run) -> str:
+def render(case_id: str, plan: Plan, data: dict, results: list[dict], gathered: dict, extras: dict, critique: dict | None, verified: dict, run: Run) -> str:
     f = AnalysisFindings.model_validate(data)
     lines = [f"**{f.headline}**", ""]
     cited = {e.strip().upper() for d in f.drivers for e in d.evidence}
-    ok = [r for r in results if r.get("ok")]
+    ok = [r for r in results if r.get("ok") and r["op"] not in ("reconcile", "materiality")]
     shown = [r for r in ok if r["table"] in cited or any(o["id"] in cited for o in r["outputs"].values())][:2] or ok[:1]
     for r in shown:
         lines += [f"**{r['label']}**", core.step_table(case_id, r, plan), ""]
@@ -29,7 +29,8 @@ def render(case_id: str, plan: Plan, data: dict, results: list[dict], extras: di
     else:
         lines += ["No single segment or rate stands out as a material driver in this data.", ""]
     lines += section("Checked and not a driver", f.not_drivers)
-    lines += section("Basis", [*plan.basis, *f.basis])
+    lines += section("Checks passed", core.passed_checks(results))
+    lines += section("Basis", f.basis or plan.basis)
     problems = [*f.caveats, *core.failed_checks(results)]
     if verified["removed"]:
         problems.append("Some supporting detail was left out because its figures could not be traced to the data.")
@@ -38,8 +39,7 @@ def render(case_id: str, plan: Plan, data: dict, results: list[dict], extras: di
     if critique:
         lines += section("Not checked", critique.get("missing_checks", []))
     lines += section("Worth asking next", f.next_questions)
-    refs = ", ".join(sorted({r["source"] for r in ok})) or "none"
-    lines.append(f"*Evidence: data results {refs}; tables {', '.join(r['table'] for r in ok)}. Analysis run {run.id}, case {case_id}.*")
+    lines.append(core.evidence_line(case_id, gathered, results, run.id, "Analysis"))
     return "\n".join(lines).strip()
 
 

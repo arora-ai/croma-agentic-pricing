@@ -82,6 +82,19 @@ class Materiality(BaseModel):
     abs_floor: float = Field(0.0, ge=0)  # and at least this much in the unit of the figures
 
 
+def require_reconciled(steps: list["Step"]) -> None:
+    """A decomposed ratio must be tied back to the data space's own figure for that ratio: numerator and denominator taken on a different basis than the data
+    space uses (for example profit over all sales instead of over the sales that have a cost) give a ratio the business does not recognise."""
+    reconciled = [str(v) for s in steps if s.op == "reconcile" for v in s.params.values()]
+    for s in steps:
+        if s.op == "rate_mix":
+            missing = [name for name in ("current_rate", "base_rate") if not any(v.startswith(f"{s.id}.{name}") for v in reconciled)]
+            if missing:
+                raise ValueError(f"step {s.id} is a rate_mix, so it must be reconciled with the data space's own figure of the ratio: ask for the ratio itself for both periods, "
+                                 f"as the data space defines it, in a question (one row, for example columns cur_margin_pct and base_margin_pct), and add a reconcile step for each of "
+                                 f"{', '.join(f'{s.id}.{m}' for m in missing)}, for example params {{\"a\": \"{s.id}.{missing[0]}\", \"b\": \"q2:#0:cur_margin_pct\"}}")
+
+
 class Plan(BaseModel):
     restated: str = Field(min_length=10)
     kpi: str
@@ -103,6 +116,7 @@ class Plan(BaseModel):
         bad = [f"{s.id} reads '{s.source}'" for s in self.steps if s.source and s.source not in qids]
         if bad:
             raise ValueError(f"steps must read a question id ({', '.join(qids)}): {'; '.join(bad)}")
+        require_reconciled(self.steps)
         return self
 
 
@@ -173,6 +187,7 @@ class FollowUp(Capped):
         bad = [f"{s.id} reads '{s.source}'" for s in self.steps if s.source and s.source not in qids]
         if bad:
             raise ValueError(f"follow-up steps must read the follow-up question ids ({', '.join(sorted(qids))}): {'; '.join(bad)}")
+        require_reconciled(self.steps)
         return self
 
 
@@ -224,11 +239,12 @@ class Cause(BaseModel):
 
 
 class ResearchConclusion(Capped):
-    CAPS = {"causes": 5, "ruled_out": 6, "unknowns": 5, "caveats": 5, "next_steps": 4}
+    CAPS = {"causes": 5, "ruled_out": 6, "unknowns": 5, "basis": 5, "caveats": 5, "next_steps": 4}
     headline: str = Field(min_length=8)
     causes: list[Cause] = Field(default_factory=list)  # ranked, most important first
     ruled_out: list[str] = Field(default_factory=list)
     unknowns: list[str] = Field(default_factory=list)
+    basis: list[str] = Field(default_factory=list)  # scope and definitions as the data space applied them
     caveats: list[str] = Field(default_factory=list)
     next_steps: list[str] = Field(default_factory=list)
 

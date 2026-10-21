@@ -3,6 +3,7 @@ and every headline figure as a calculation (D id), so a report or an analysis ca
 from __future__ import annotations
 
 import json
+import re
 
 from studio import analytics, ledger
 
@@ -18,6 +19,18 @@ def _figure(c: ledger.CaseLedger, value) -> float:
     return ledger.resolve_cell(c, str(value))[0]
 
 
+def _unit_of(c: ledger.CaseLedger, ref) -> str:
+    """How a referenced figure is measured (pct, pp, ...), from the calculation it is or the name of the column it sits in; '' when unknown."""
+    if not isinstance(ref, str):
+        return ""
+    ref = ref.strip()
+    if re.fullmatch(r"D\d+", ref, re.I):
+        d = c.calcs.get(ref.upper())
+        return d.unit if d else ""
+    column = ref.split(":")[-1].lower()
+    return "pct" if column.endswith("_pct") else ("pp" if column.endswith("_pp") else "")
+
+
 def run_op(case_id: str, op: str, source: str = "", params: dict | None = None, label: str = "", preview_rows: int = 12) -> dict:
     """Raises analytics.AnalyticsError (bad parameters, columns that are not there), KeyError (unknown result) or ValueError with a message that says what to fix."""
     spec = analytics.OPS.get(op)
@@ -28,10 +41,17 @@ def run_op(case_id: str, op: str, source: str = "", params: dict | None = None, 
         c = ledger.case(case_id)
         truncated = False
         if spec.scalar:
+            hint = next((h for h in (_unit_of(c, params.get(n)) for n in ("a", "b", "change", "base")) if h), "")
             for name in ("a", "b", "change", "base"):
                 if name in params:
                     params[name] = _figure(c, params[name])
             result = analytics.run(op, None, params)
+            if hint:  # the compared figures are percentages (or points), not rupees: say so wherever they are shown
+                for name in ("first", "second", "change", "base"):
+                    if name in result.units:
+                        result.units[name] = hint
+                if "difference" in result.units:
+                    result.units["difference"] = "pp" if hint == "pct" else hint
             origin = "figures"
         else:
             if not source:

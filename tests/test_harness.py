@@ -18,14 +18,21 @@ from studio import ledger  # noqa: E402
 CATEGORY = {"columns": ["category", "cur_nmv", "cur_profit", "base_nmv", "base_profit"],
             "rows": [["Phones", 150, 15, 100, 10], ["Laptops", 50, 12.5, 100, 20]], "sql": "select 1"}
 CLASS = {"columns": ["class", "cur_nmv", "base_nmv"], "rows": [["Gaming", 30, 60], ["Thin and light", 20, 40]], "sql": "select 2"}
+OFFICIAL = {"columns": ["cur_margin_pct", "base_margin_pct"], "rows": [[13.75, 15.0]], "sql": "select 3"}  # the data space's own margin %: it agrees with the breakdown
+OFFICIAL_ELSEWHERE = {"columns": ["cur_margin_pct", "base_margin_pct"], "rows": [[11.92, 10.88]], "sql": "select 3"}  # a different basis: it does not
+TABLES = {"by category": CATEGORY, "as the data space defines it": OFFICIAL}
 
 PLAN = {
     "restated": "What moved Stores margin % between August and September 2026, and which categories drove it.",
     "kpi": "Merchandise margin % (Stores)", "unit": "\u20b9 Cr", "current_label": "September 2026", "base_label": "August 2026", "basis": ["Stores only"],
     "questions": [{"id": "q1", "purpose": "category cut", "ask": "For Stores only, by category: NMV and merchandise profit for 2026-09-01 to 2026-09-30 and 2026-08-01 to 2026-08-31.",
-                   "columns": ["category", "cur_nmv", "cur_profit", "base_nmv", "base_profit"]}],
+                   "columns": ["category", "cur_nmv", "cur_profit", "base_nmv", "base_profit"]},
+                  {"id": "q2", "purpose": "official margin", "ask": "For Stores only, the margin % exactly as the data space defines it, for September and August 2026, as one row.",
+                   "columns": ["cur_margin_pct", "base_margin_pct"]}],
     "steps": [{"id": "s1", "label": "Margin % drivers by category", "op": "rate_mix", "source": "q1",
-               "params": {"key": "category", "cur_num": "cur_profit", "cur_den": "cur_nmv", "base_num": "base_profit", "base_den": "base_nmv"}}],
+               "params": {"key": "category", "cur_num": "cur_profit", "cur_den": "cur_nmv", "base_num": "base_profit", "base_den": "base_nmv"}},
+              {"id": "s3", "label": "September margin ties to the data space", "op": "reconcile", "params": {"a": "s1.current_rate", "b": "q2:#0:cur_margin_pct"}},
+              {"id": "s4", "label": "August margin ties to the data space", "op": "reconcile", "params": {"a": "s1.base_rate", "b": "q2:#0:base_margin_pct"}}],
 }
 
 
@@ -51,7 +58,9 @@ class Script:
 
 
 def data_agent(tables):
-    """A stub Data agent: registers the matching table in the ledger the way the Genie gateway does and answers citing its result id."""
+    """A stub Data agent: registers the matching table in the ledger the way the Genie gateway does and answers citing its result id.
+    Unless the test says there is no data at all ({}), the data space's own margin % is available as well."""
+    tables = {**TABLES, **tables} if tables else tables
     asked = []
 
     async def ask(question, case_id):
@@ -195,7 +204,7 @@ def test_a_follow_up_round_runs_more_evidence_and_the_analyst_concludes_on_all_o
             return follow
         assert body["round"] == 2 and body["can_follow_up"] is False
         steps = {s["step"]: s for s in body["evidence"]["steps"]}
-        assert set(steps) == {"s1", "x1"} and steps["x1"]["from"] == "R2"  # follow-up ids are renumbered and read the second result
+        assert {"s1", "s3", "s4", "x1"} == set(steps) and steps["x1"]["from"] == "R3"  # follow-up ids are renumbered and read the third result (R2 is the data space's own margin %)
         reply = good_findings(body)
         reply["findings"]["drivers"].append({"headline": f"Gaming fell most within Phones ({steps['x1']['figures']['total_change']['shown']} in total).", "evidence": [steps["x1"]["table"]], "why": ""})
         return reply
@@ -317,7 +326,7 @@ def test_the_critic_can_ask_for_one_follow_up_round_in_research():
     def conclude(body):
         reply = research_conclusion(body)
         if body["round"] == 3:
-            assert {s["step"] for s in body["evidence"]["steps"]} == {"s1", "x1"} and body["critique"][0]["problem"].startswith("Phones' own class")
+            assert {s["step"] for s in body["evidence"]["steps"]} == {"s1", "s3", "s4", "x1"} and body["critique"][0]["problem"].startswith("Phones' own class")
         return reply
 
     script = Script(research_plan=RESEARCH_PLAN, research_conclusion=conclude, review_research=critique)
@@ -328,6 +337,55 @@ def test_the_critic_can_ask_for_one_follow_up_round_in_research():
 
 
 # ---------------------------------------------------------------- the pieces
+
+def test_a_rate_mix_that_is_not_reconciled_is_refused_with_the_fix_in_the_message():
+    plan = json.loads(json.dumps(PLAN))
+    plan["steps"] = [plan["steps"][0]]
+    with pytest.raises(ValueError, match=r"must be reconciled.*s1\.current_rate, s1\.base_rate"):
+        AnalysisPlan.model_validate(plan)
+    plan["steps"] += [PLAN["steps"][1]]  # one of the two is not enough
+    with pytest.raises(ValueError, match=r"reconcile step for each of s1\.base_rate"):
+        AnalysisPlan.model_validate(plan)
+    from harness.schemas import FollowUp
+
+    with pytest.raises(ValueError, match="must be reconciled"):
+        FollowUp.model_validate({"why": "Check the classes.", "questions": [PLAN["questions"][0]], "steps": [PLAN["steps"][0]]})
+
+
+def test_a_reconcile_that_fails_is_shown_to_the_reader_and_the_analyst():
+    seen = {}
+
+    def analyst(body):
+        step = next(s for s in body["evidence"]["steps"] if s["step"] == "s3")
+        seen.update(checks=step["checks"], first=step["figures"]["first"]["shown"], second=step["figures"]["second"]["shown"])
+        return good_findings(body)
+
+    script = Script(analysis_plan=PLAN, analysis_findings=analyst, review_analysis=ACCEPT)
+    run, _saved = run_harness("analysis", "C-h14", script, {"as the data space defines it": OFFICIAL_ELSEWHERE})
+    assert run.status == "done", run.error
+    assert seen == {"checks": {"within_tolerance": False}, "first": "13.75%", "second": "11.92%"}  # percentages are shown as percentages, not as rupees
+    md = run.result["markdown"]
+    assert "13.75 against 11.92 from the data space. The two do not agree" in md and "different basis" in md
+
+
+def test_steps_that_compare_figures_run_after_the_steps_they_read_and_follow_up_references_are_renumbered():
+    from harness import core
+    from harness.schemas import FollowUp
+
+    plan = {**PLAN, "steps": [PLAN["steps"][1], PLAN["steps"][2], PLAN["steps"][0]]}  # the reconcile steps come first in the plan
+    script = Script(analysis_plan=plan, analysis_findings=good_findings, review_analysis=ACCEPT)
+    run, _saved = run_harness("analysis", "C-h15", script, {})
+    assert run.status == "failed"  # (no data given: the point here is only that the plan is accepted)
+    run, _saved = run_harness("analysis", "C-h16", script, {"by category": CATEGORY})
+    assert run.status == "done" and all(r["ok"] for r in run.data["compute"])
+    assert [r["step"] for r in run.data["compute"]] == ["s3", "s4", "s1"]  # results keep the plan's order
+
+    fu = FollowUp.model_validate({"why": "Check classes inside Phones.", "questions": [PLAN["questions"][0], PLAN["questions"][1]],
+                                  "steps": [PLAN["steps"][0], PLAN["steps"][1], PLAN["steps"][2]]})
+    out = core.renumber(fu)
+    assert [q.id for q in out.questions] == ["f1", "f2"] and [s.id for s in out.steps] == ["x1", "x2", "x3"]
+    assert out.steps[0].source == "f1" and out.steps[1].params == {"a": "x1.current_rate", "b": "f2:#0:cur_margin_pct"}
+
 
 def test_worker_replies_are_parsed_leniently_and_repaired_once():
     from harness.schemas import FixedSteps
@@ -399,5 +457,5 @@ def test_the_stage_log_is_what_the_admin_view_reads():
     run, _saved = run_harness("analysis", "C-h13", script, {"by category": CATEGORY})
     summary = run.to_dict(with_data=False)
     assert "data" not in summary and [s["name"] for s in summary["stages"]][0] == "scope"
-    assert next(s for s in summary["stages"] if s["name"] == "gather")["summary"] == "1 of 1 questions answered"
-    assert next(s for s in summary["stages"] if s["name"] == "compute")["summary"] == "1 of 1 computed"
+    assert next(s for s in summary["stages"] if s["name"] == "gather")["summary"] == "2 of 2 questions answered"
+    assert next(s for s in summary["stages"] if s["name"] == "compute")["summary"] == "3 of 3 computed"

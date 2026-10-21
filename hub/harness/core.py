@@ -14,6 +14,7 @@ from studio import analytics, analyze, audit, ledger
 
 RESULT_ID = re.compile(r"\bR(\d+)\b")
 REF = re.compile(r"^(?P<q>[A-Za-z][A-Za-z0-9_-]*)(?P<rest>:.+)$")
+STEP_REF = re.compile(r"^(?P<s>[A-Za-z][A-Za-z0-9_-]*)\.(?P<out>[a-z][a-z0-9_]*)$")
 MAX_PACK_ROWS = 8
 
 
@@ -105,7 +106,7 @@ def result_shapes(case_id: str, gathered: dict[str, dict], rows: int = 2) -> dic
     for qid, g in gathered.items():
         if g.get("result_id"):
             t = ledger.get_table(case_id, g["result_id"])
-            shapes[qid] = {"result": t.id, "columns": t.columns, "row_count": len(t.rows), "preview": [[_round(v) for v in r] for r in t.rows[:rows]]}
+            shapes[qid] = {"result": t.id, "columns": t.columns, "row_count": len(t.rows), "preview": [[_round(v, 4) for v in r] for r in t.rows[:rows]]}
     return shapes
 
 
@@ -152,27 +153,36 @@ def _rewrite(value: Any, mapping: dict[str, str]) -> Any:
     return value
 
 
-def resolve_refs(params: dict, gathered: dict[str, dict]) -> dict:
-    """'q2:SUM:cur_nmv' -> 'R7:SUM:cur_nmv', so a plan can refer to a question before its result has an id."""
-    mapping = {}
-    for qid, g in gathered.items():
-        if g.get("result_id"):
-            mapping[qid] = g["result_id"]
+def resolve_refs(params: dict, gathered: dict[str, dict], step_outputs: dict[str, dict[str, str]] | None = None) -> dict:
+    """Lets a plan point at things that do not have ids yet. 'q2:SUM:cur_nmv' becomes 'R7:SUM:cur_nmv' (a question's result); 's1.current_rate' becomes 'D14'
+    (a figure an earlier step produced)."""
+    mapping = {qid: g["result_id"] for qid, g in gathered.items() if g.get("result_id")}
     out = {}
     for k, v in params.items():
-        m = REF.match(v) if isinstance(v, str) else None
-        if m and m["q"] in gathered and m["q"] not in mapping:
-            raise analytics.AnalyticsError(f"question {m['q']} returned no data")
+        if isinstance(v, str):
+            m = REF.match(v)
+            if m and m["q"] in gathered and m["q"] not in mapping:
+                raise analytics.AnalyticsError(f"question {m['q']} returned no data")
+            s = STEP_REF.match(v)
+            if s and step_outputs is not None:
+                outputs = step_outputs.get(s["s"])
+                if outputs is None:
+                    raise analytics.AnalyticsError(f"step {s['s']} produced no figures (it failed, or it is not a step of this plan), so {v} cannot be used")
+                if s["out"] not in outputs:
+                    raise analytics.AnalyticsError(f"step {s['s']} has no figure '{s['out']}'. It has: {', '.join(outputs)}")
+                v = outputs[s["out"]]
         out[k] = _rewrite(v, mapping)
     return out
 
 
 def compute(case_id: str, steps: list[Step], gathered: dict[str, dict], materiality: Materiality) -> list[dict]:
-    """Runs every step's analytics on the ledger. A step that cannot run is reported with the reason, so the analyst can say what is missing."""
-    results = []
-    for step in steps:
+    """Runs every step's analytics on the ledger: steps that read a result first, then the steps that compare figures (reconcile, materiality), which may point at the
+    figures of the first kind ('s1.current_rate'). A step that cannot run is reported with the reason, so the analyst can say what is missing. Results keep the plan's order."""
+    done: dict[str, dict] = {}
+    outputs_by_step: dict[str, dict[str, str]] = {}
+    for step in sorted(steps, key=lambda s: analytics.OPS[s.op].scalar):
         try:
-            params = resolve_refs(step.params, gathered)
+            params = resolve_refs(step.params, gathered, outputs_by_step)
             spec = analytics.OPS[step.op]
             if not spec.scalar:
                 for name, value in (("min_share", materiality.min_share), ("abs_floor", materiality.abs_floor)):
@@ -184,30 +194,49 @@ def compute(case_id: str, steps: list[Step], gathered: dict[str, dict], material
                 if not source:
                     raise analytics.AnalyticsError(f"question {step.source} returned no data")
             run = analyze.run_op(case_id, step.op, source, params, step.label, preview_rows=MAX_PACK_ROWS + 4)
-            results.append({"step": step.id, "ok": True, "unit": step.unit, **run})
+            done[step.id] = {"step": step.id, "ok": True, "unit": step.unit, **run}
+            outputs_by_step[step.id] = {name: o["id"] for name, o in run["outputs"].items()}
         except Exception as exc:
             reason = exc.args[0] if isinstance(exc, KeyError) and exc.args else exc
-            results.append({"step": step.id, "ok": False, "label": step.label, "op": step.op, "error": f"{type(exc).__name__}: {reason}"})
-    return results
+            done[step.id] = {"step": step.id, "ok": False, "label": step.label, "op": step.op, "error": f"{type(exc).__name__}: {reason}"}
+    return [done[s.id] for s in steps]
 
 
 def failed_checks(results: list[dict]) -> list[str]:
-    return [f"{r['label']}: check '{name}' failed" for r in results if r.get("ok") for name, passed in (r.get("checks") or {}).items() if passed is False]
+    out = []
+    for r in results:
+        if not r.get("ok"):
+            continue
+        for name, passed in (r.get("checks") or {}).items():
+            if passed is not False:
+                continue
+            if r["op"] == "reconcile":
+                o = {k: v["value"] for k, v in r["outputs"].items()}
+                out.append(f"{r['label']}: {o.get('first', 0):,.2f} against {o.get('second', 0):,.2f} from the data space. The two do not agree, so the breakdown may rest on a different basis than the data space's own figure.")
+            else:
+                out.append(f"{r['label']}: the check '{name.replace('_', ' ')}' did not pass.")
+    return out
 
 
 def renumber(fu: FollowUp) -> FollowUp:
     """Follow-up ids are made new (f1.., x1..) so they cannot collide with the plan's."""
     qmap = {q.id: f"f{i}" for i, q in enumerate(fu.questions, 1)}
+    smap = {s.id: f"x{i}" for i, s in enumerate(fu.steps, 1)}
+
+    def rewrite(v: Any) -> Any:
+        v = _rewrite(v, qmap)
+        m = STEP_REF.match(v) if isinstance(v, str) else None
+        return f"{smap[m['s']]}.{m['out']}" if m and m["s"] in smap else v
+
     questions = [q.model_copy(update={"id": qmap[q.id]}) for q in fu.questions]
-    steps = [s.model_copy(update={"id": f"x{i}", "source": qmap.get(s.source, s.source), "params": {k: _rewrite(v, qmap) for k, v in s.params.items()}})
-             for i, s in enumerate(fu.steps, 1)]
+    steps = [s.model_copy(update={"id": smap[s.id], "source": qmap.get(s.source, s.source), "params": {k: rewrite(v) for k, v in s.params.items()}}) for s in fu.steps]
     return FollowUp(why=fu.why, questions=questions, steps=steps)
 
 
 # ---------------------------------------------------------------- what a worker reads
 
-def _round(v: Any) -> Any:
-    return round(v, 4) if isinstance(v, float) else v
+def _round(v: Any, digits: int = 2) -> Any:
+    return round(v, digits) if isinstance(v, float) else v
 
 
 def shown(value: float | None, hint: str, unit: str) -> str:
@@ -369,7 +398,8 @@ def fmt_cell(column: str, v: Any) -> str:
         return v
     c = column.lower()
     if c.endswith("_pp"):
-        return f"{v:+,.2f}"
+        text = f"{v:+,.2f}"
+        return "0.00" if text in ("+0.00", "-0.00") else text
     if c.endswith("_pct"):
         return f"{v:,.1f}%"
     if c == "rank":
@@ -395,6 +425,17 @@ def step_table(case_id: str, result: dict, plan: Plan, rows: int = 6) -> str:
     if len(table.rows) > rows:
         lines.append(f"\n*Top {rows} of {len(table.rows)} (all rows: {table.id}).*")
     return "\n".join(lines)
+
+
+def passed_checks(results: list[dict]) -> list[str]:
+    """The comparisons with the data space's own figures that held, so the reader can see what the numbers were tied to."""
+    return [r["label"] for r in results if r.get("ok") and r["op"] == "reconcile" and (r.get("checks") or {}).get("within_tolerance") is True]
+
+
+def evidence_line(case_id: str, gathered: dict[str, dict], results: list[dict], run_id: str, kind: str) -> str:
+    data = sorted({g["result_id"] for g in gathered.values() if g.get("result_id")}, key=lambda r: int(r[1:]))
+    tables = [r["table"] for r in results if r.get("ok") and not analytics.OPS[r["op"]].scalar]
+    return f"*Evidence: data results {', '.join(data) or 'none'}; tables {', '.join(tables) or 'none'}. {kind} run {run_id}, case {case_id}.*"
 
 
 def fallback_headline(plan: Plan, results: list[dict]) -> str:
