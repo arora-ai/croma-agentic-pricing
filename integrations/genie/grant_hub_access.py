@@ -34,7 +34,7 @@ class Workspace:
     def __init__(self, host: str):
         self.host = host.rstrip("/")
         self.http = httpx.Client(timeout=120)
-        self.cred = AzureCliCredential()
+        self.cred = AzureCliCredential(process_timeout=120)  # the default 10 seconds is too short on a slow machine
 
     def call(self, method: str, path: str, **kw):
         token = self.cred.get_token(f"{DATABRICKS_RESOURCE}/.default").token

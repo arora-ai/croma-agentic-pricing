@@ -30,6 +30,13 @@ if ($g.AuthMode -eq "token") {
     if (-not $env:DATABRICKS_TOKEN) { throw "Genie.AuthMode is 'token' but `$env:DATABRICKS_TOKEN is not set in this shell." }
     $secrets += "dbxtoken=$($env:DATABRICKS_TOKEN)"
     $settings += "DATABRICKS_TOKEN=secretref:dbxtoken"
+} elseif ($g.AuthMode -eq "apim") {
+    # The data gateway (infra/apim): DatabricksHost is its URL, and the hub sends only this subscription key.
+    $apimKey = $env:APIM_SUBSCRIPTION_KEY
+    if (-not $apimKey -and (Test-Path "$root\.apim.env")) { $apimKey = (Get-Content "$root\.apim.env" | Where-Object { $_ -match '^APIM_DATA_KEY=' } | ForEach-Object { $_.Split("=", 2)[1] }) }
+    if (-not $apimKey) { throw "Genie.AuthMode is 'apim' but there is no data gateway subscription key: set `$env:APIM_SUBSCRIPTION_KEY or run infra/apim/deploy_apim.ps1 (APIM_DATA_KEY in .apim.env)." }
+    $secrets += "apimkey=$apimKey"
+    $settings += "APIM_SUBSCRIPTION_KEY=secretref:apimkey"
 }
 $exists = az containerapp show -n $app -g $rg --query name -o tsv 2>$null
 if (-not $exists) {

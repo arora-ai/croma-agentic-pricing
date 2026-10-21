@@ -19,10 +19,11 @@ GENIE_TIMEOUT_S = float(os.getenv("GENIE_TIMEOUT_S", "90"))  # Foundry cuts a to
 GENIE_TOOL_DESCRIPTION = os.getenv("GENIE_TOOL_DESCRIPTION", "")  # shown to the Data agent: what the connected data space covers
 
 # Databricks Genie backend. Nothing secret lives in code: the host and space id come from here, credentials from the environment.
-DATABRICKS_HOST = os.getenv("DATABRICKS_HOST", "").rstrip("/")  # https://adb-<workspace-id>.<n>.azuredatabricks.net
+DATABRICKS_HOST = os.getenv("DATABRICKS_HOST", "").rstrip("/")  # https://adb-<workspace-id>.<n>.azuredatabricks.net (apim mode: the data gateway's URL)
 GENIE_SPACE_ID = os.getenv("GENIE_SPACE_ID", "")
-DATABRICKS_AUTH = os.getenv("DATABRICKS_AUTH", "managed_identity")  # managed_identity (also covers an Entra service principal via env vars) | token
+DATABRICKS_AUTH = os.getenv("DATABRICKS_AUTH", "managed_identity")  # managed_identity (also covers an Entra service principal via env vars) | token | apim
 DATABRICKS_TOKEN = os.getenv("DATABRICKS_TOKEN", "")  # only for DATABRICKS_AUTH=token (a personal access token for a quick test)
+APIM_SUBSCRIPTION_KEY = os.getenv("APIM_SUBSCRIPTION_KEY", "")  # only for DATABRICKS_AUTH=apim: the subscription key of the data gateway (Azure API Management)
 
 # Custom backend: "package.module:function", an async function ask(question, conversation_id) -> dict (see integrations/genie/README.md).
 CUSTOM_BACKEND = os.getenv("CUSTOM_BACKEND", "")

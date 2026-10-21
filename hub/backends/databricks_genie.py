@@ -1,14 +1,16 @@
 """Databricks Genie backend: a question in, the SQL and the rows out.
 
 Configure with environment variables (see .env.example and integrations/genie/README.md):
-    DATABRICKS_HOST   https://adb-<workspace-id>.<n>.azuredatabricks.net
-    GENIE_SPACE_ID    the id of the Genie space (the string in the space's URL)
-    DATABRICKS_AUTH   managed_identity (default) | token
+    DATABRICKS_HOST       https://adb-<workspace-id>.<n>.azuredatabricks.net   (in apim mode: the data gateway's URL, https://<apim>.azure-api.net/dbx)
+    GENIE_SPACE_ID        the id of the Genie space (the string in the space's URL)
+    DATABRICKS_AUTH       managed_identity (default) | token | apim
 
 managed_identity: the hub signs in with an Entra token for Azure Databricks. In Azure that is the Container App's managed identity; locally it is your
 az login; with AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET set it is that Entra service principal. Whichever identity it is must be a user or
 service principal in the workspace, with CAN RUN on the Genie space, CAN USE on the SQL warehouse and SELECT on the tables the space uses.
 token: a Databricks personal access token or OAuth token in DATABRICKS_TOKEN. Handy for a quick test; prefer managed_identity for anything shared.
+apim: the hub calls the Genie REST API through the Azure API Management data gateway (docs/APIM.md). It sends only its APIM subscription key
+(APIM_SUBSCRIPTION_KEY) in the Ocp-Apim-Subscription-Key header and no Authorization header: APIM signs in to Databricks with its own managed identity.
 """
 from __future__ import annotations
 
@@ -18,7 +20,7 @@ import time
 import httpx
 
 from backends.base import failure
-from settings import DATABRICKS_AUTH, DATABRICKS_HOST, DATABRICKS_TOKEN, GENIE_SPACE_ID, GENIE_TIMEOUT_S, MAX_ROWS
+from settings import APIM_SUBSCRIPTION_KEY, DATABRICKS_AUTH, DATABRICKS_HOST, DATABRICKS_TOKEN, GENIE_SPACE_ID, GENIE_TIMEOUT_S, MAX_ROWS
 
 DATABRICKS_RESOURCE = "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"  # the Azure Databricks first-party application (a public, well-known id)
 POLL_SECONDS = 1.5
@@ -34,6 +36,15 @@ def _token() -> str:
     from azure_clients import credential
 
     return credential().get_token(f"{DATABRICKS_RESOURCE}/.default").token
+
+
+def _auth_headers() -> dict[str, str]:
+    """The request headers that authenticate to the Genie REST API in the configured mode."""
+    if DATABRICKS_AUTH == "apim":
+        if not APIM_SUBSCRIPTION_KEY:
+            raise RuntimeError("DATABRICKS_AUTH=apim but APIM_SUBSCRIPTION_KEY is not set")
+        return {"Ocp-Apim-Subscription-Key": APIM_SUBSCRIPTION_KEY}
+    return {"Authorization": f"Bearer {_token()}"}
 
 
 def _value(raw, type_name: str):
@@ -54,10 +65,10 @@ async def ask(question: str, conversation_id: str = "") -> dict:
     started = time.time()
     base = f"{DATABRICKS_HOST}/api/2.0/genie/spaces/{GENIE_SPACE_ID}"
     try:
-        token = await asyncio.to_thread(_token)
+        headers = await asyncio.to_thread(_auth_headers)
     except Exception as exc:
-        return failure(question, f"Could not get a Databricks token ({type(exc).__name__}: {str(exc)[:160]}).", NAME)
-    headers = {"Authorization": f"Bearer {token}"}
+        what = "an APIM subscription key" if DATABRICKS_AUTH == "apim" else "a Databricks token"
+        return failure(question, f"Could not get {what} ({type(exc).__name__}: {str(exc)[:160]}).", NAME)
     async with httpx.AsyncClient(timeout=60, headers=headers) as http:
         # Each question is a fresh Genie conversation: the Data agent writes self-contained questions, and independent questions can then run in
         # parallel without queueing behind each other in one conversation.
