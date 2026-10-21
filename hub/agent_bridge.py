@@ -6,46 +6,19 @@ import asyncio
 import os
 import time
 import uuid
-from collections import deque
 
 from mcp.server.fastmcp import FastMCP
 
-from azure_clients import project_openai
+import case_context
+import harness
 from events import emit, infer_caller
-from settings import AGENT_CALL_TIMEOUT_S, AGENT_NAMES, REPORT_TEAM
+from foundry_runs import invoke as _invoke
+from foundry_runs import trace  # recent agent-to-agent calls, shown by /trace
+from harness import runtime as harness_runtime
+from harness import workers as harness_workers
+from settings import AGENT_CALL_TIMEOUT_S, HARNESS_MODE, REPORT_TEAM
 
 mcp = FastMCP("agent-bridge", host="0.0.0.0", stateless_http=True, json_response=True)
-
-# Recent calls, so a test run can show which agents talked to which (no fixed order, so this is the evidence).
-trace: deque[dict] = deque(maxlen=500)
-
-
-def _invoke(agent: str, text: str) -> tuple[str, dict]:
-    """Runs the agent as a Foundry background response and polls it: a long run (a report takes many minutes) as one open HTTP request gets cut
-    by idle-connection limits, whereas short polls do not. A run that fails on the model's token rate limit is retried after a pause."""
-    client = project_openai()
-    ref = {"agent_reference": {"name": AGENT_NAMES[agent], "type": "agent_reference"}}
-    for attempt in range(1, 7):
-        resp = client.responses.create(input=text, background=True, extra_body=ref)
-        failures = 0
-        while resp.status in ("queued", "in_progress"):
-            time.sleep(3)
-            try:
-                resp = client.responses.retrieve(resp.id)
-                failures = 0
-            except Exception:
-                failures += 1  # a dropped poll is not a failed run; try again a few times
-                if failures > 5:
-                    raise
-        if resp.status == "completed":
-            usage = getattr(resp, "usage", None)
-            return resp.output_text, {"input_tokens": getattr(usage, "input_tokens", None), "output_tokens": getattr(usage, "output_tokens", None)}
-        detail = getattr(getattr(resp, "error", None), "message", None) or str(resp.status)
-        if "rate limit" in detail.lower() and attempt < 6:
-            time.sleep(65)  # the token quota renews every 60 seconds, so waiting a full window is what actually helps
-            continue
-        raise RuntimeError(f"the {agent} agent run did not complete ({detail})")
-    raise RuntimeError(f"the {agent} agent run did not complete")
 
 
 async def _call(agent: str, text: str, case_id: str) -> str:
@@ -102,6 +75,44 @@ async def _submit(agent: str, text: str, case_id: str) -> str:
     return await _wait(job_id)
 
 
+def _harness_deps() -> harness_runtime.Deps:
+    async def ask_data(question: str, case_id: str) -> str:
+        return await _call("data", _with_case(question, case_id), case_id)
+
+    return harness_runtime.Deps(ask_data=ask_data, worker=harness_workers.call_worker, save_finding=lambda *a: case_context.save_finding(*a), get_case=case_context.snapshot)
+
+
+async def _run_harness(name: str, brief: str, case_id: str) -> str:
+    """Runs the Analysis or Research harness as one agent call, so the admin view and the trace show it like any other specialist."""
+    started = time.time()
+    entry = {"at": time.strftime("%H:%M:%S"), "agent": name, "case_id": case_id, "ask": brief[:300]}
+    call_id = uuid.uuid4().hex[:8]
+    emit("agent_start", id=call_id, agent=name, caller="cx", case_id=case_id, ask=brief[:600])
+    answer, ok = "", False
+    try:
+        run = await asyncio.wait_for(harness.execute(name, brief, case_id, _harness_deps()), AGENT_CALL_TIMEOUT_S)
+        if run.status == "done" and run.result:
+            answer, ok = run.result["markdown"], True
+            entry.update(ok=True, answer=run.result["headline"][:300], run=run.id)
+        else:
+            entry.update(ok=False, error=run.error[:200], run=run.id)
+            answer = f"ERROR: the {name} could not be completed ({run.error}). Try a narrower question, or continue without it."
+    except Exception as exc:
+        entry.update(ok=False, error=f"{type(exc).__name__}: {str(exc)[:200]}")
+        answer = f"ERROR: the {name} could not be completed ({type(exc).__name__}). Try a narrower question, or continue without it."
+    finally:
+        entry["seconds"] = round(time.time() - started, 1)
+        trace.append(entry)
+        emit("agent_end", id=call_id, agent=name, caller="cx", case_id=case_id, ok=ok, seconds=entry["seconds"], answer=answer[:800])
+    return answer
+
+
+async def _submit_harness(name: str, brief: str, case_id: str) -> str:
+    job_id = "J-" + uuid.uuid4().hex[:8]
+    _jobs[job_id] = (asyncio.create_task(_run_harness(name, brief, case_id)), name)
+    return await _wait(job_id)
+
+
 @mcp.tool()
 async def wait_for_agent(job_id: str) -> str:
     """Keep waiting for a specialist agent that an earlier call reported as STILL RUNNING. Returns its answer, or STILL RUNNING again
@@ -154,18 +165,26 @@ async def ask_lookup_agent(question: str, case_id: str = "") -> str:
 
 @mcp.tool()
 async def ask_research_agent(brief: str, case_id: str) -> str:
-    """Hand a research brief to the Research agent: it investigates a topic, anomaly or hypothesis, pulling data through the Data agent, and
-    saves its findings on the case. Returns a short summary of what it found. This can take minutes: if the answer is STILL RUNNING,
-    call wait_for_agent until it returns."""
-    return await _submit("research", _with_case(brief, case_id), case_id)
+    """Hand a 'why did this happen' question to Research. It turns the question into hypotheses, tests each one against figures it computes exactly from the
+    Data agent's results, ranks what the data supports, rules out what it does not, and has the conclusion challenged before it comes back. Returns the finished
+    research brief (a verdict for every explanation, the ranked causes, what is still unknown) with its evidence ids, and saves the findings on the case. Give it
+    the question, scope, period, comparison basis and the agreed interpretation. This takes several minutes: if the answer is STILL RUNNING, call wait_for_agent
+    until it returns."""
+    if HARNESS_MODE == "agent":
+        return await _submit("research", _with_case(brief, case_id), case_id)
+    return await _submit_harness("research", brief, case_id)
 
 
 @mcp.tool()
 async def ask_analysis_agent(brief: str, case_id: str) -> str:
-    """Hand a business KPI to the Analysis agent: it analyses drivers, trends and variance, pulling data through the Data agent, and saves its
-    findings on the case. Returns a short summary of what it found. This can take minutes: if the answer is STILL RUNNING,
-    call wait_for_agent until it returns."""
-    return await _submit("analysis", _with_case(brief, case_id), case_id)
+    """Hand a business KPI to Analysis. It plans the analysis, pulls the data through the Data agent, computes what moved and why with exact methods (change by
+    segment, rate against mix, price against volume against mix, target gaps), checks every figure against the data, and has the result challenged before it comes
+    back. Returns the finished analysis brief (headline, driver table, ranked drivers, what was checked and is not a driver, caveats) with its evidence ids, and saves
+    the findings on the case. Give it the KPI, scope, period, comparison basis and the agreed interpretation. This takes several minutes: if the answer is STILL
+    RUNNING, call wait_for_agent until it returns."""
+    if HARNESS_MODE == "agent":
+        return await _submit("analysis", _with_case(brief, case_id), case_id)
+    return await _submit_harness("analysis", brief, case_id)
 
 
 @mcp.tool()

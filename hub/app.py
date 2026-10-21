@@ -4,7 +4,8 @@
     /context/mcp   shared case context
     /studio/mcp    the report studio: evidence ledger, calculations, audit, renderer
     /trace         recent agent-to-agent calls (for test runs);  /case/<id>  the case as saved;  /healthz  open
-    /report/<case>/<n>.docx|.html  published reports;  /state/<case>  export a case, POST /state to restore it
+    /runs/<case>   the harness runs (Analysis, Research) on a case, stage by stage
+    /report/<case>/<n>.docx|.html  published reports;  /state/<case>  export a case (with its runs), POST /state to restore it
 """
 from __future__ import annotations
 
@@ -24,7 +25,8 @@ import agent_bridge
 import case_context
 import events as live_events
 import genie_gateway
-from settings import API_KEY, GENIE_BACKEND
+from harness import runtime as harness_runtime
+from settings import API_KEY, GENIE_BACKEND, HARNESS_MODE
 from studio import server as studio_server
 
 logging.basicConfig(level=logging.WARNING)
@@ -40,7 +42,7 @@ async def lifespan(_app):
 
 
 async def healthz(_request: Request):
-    return JSONResponse({"status": "ok", "genie_tool": genie_gateway.TOOL_NAME, "genie_backend": GENIE_BACKEND})
+    return JSONResponse({"status": "ok", "genie_tool": genie_gateway.TOOL_NAME, "genie_backend": GENIE_BACKEND, "harness_mode": HARNESS_MODE})
 
 
 async def trace(request: Request):
@@ -71,11 +73,21 @@ async def report_file(request: Request):
 
 
 async def state_export(request: Request):
-    return JSONResponse(studio_server.export_state(request.path_params["case_id"]))
+    case_id = request.path_params["case_id"]
+    return JSONResponse({**studio_server.export_state(case_id), "runs": harness_runtime.dump(case_id)})
 
 
 async def state_import(request: Request):
-    return JSONResponse({"restored": studio_server.import_state(await request.json())})
+    data = await request.json()
+    case_id = studio_server.import_state(data)
+    harness_runtime.load(data.get("runs", []))
+    return JSONResponse({"restored": case_id, "runs": len(data.get("runs", []))})
+
+
+async def runs(request: Request):
+    """The harness runs on a case with their stages; add ?data=1 to include what each stage saved."""
+    with_data = request.query_params.get("data") in ("1", "true")
+    return JSONResponse([r.to_dict(with_data=with_data) for r in harness_runtime.for_case(request.path_params["case_id"])])
 
 
 class ApiKey:
@@ -94,7 +106,7 @@ class ApiKey:
 
 
 app = ApiKey(Starlette(
-    routes=[Route("/healthz", healthz), Route("/trace", trace), Route("/events", events), Route("/case/{case_id}", case),
+    routes=[Route("/healthz", healthz), Route("/trace", trace), Route("/events", events), Route("/case/{case_id}", case), Route("/runs/{case_id}", runs),
             Route("/report/{case_id}/{n:int}.{ext}", report_file),
             Route("/state/{case_id}", state_export),
             Route("/state", state_import, methods=["POST"]),

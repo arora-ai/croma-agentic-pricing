@@ -40,3 +40,13 @@ AGENT_NAMES = {role: f"{NAME_PREFIX}-{suffix}" for role, suffix in ROLE_SUFFIX.i
 REPORT_TEAM = ("planner", "insight", "strategist", "writer", "reviewer")
 WORKERS = ("scoper", "analyst", "critic")
 AGENT_CALL_TIMEOUT_S = float(os.getenv("AGENT_CALL_TIMEOUT_S", "3600"))
+
+# Analysis and Research run as harnesses: code owns the stages, the checks and the arithmetic, and language-model workers (scoper, analyst, critic) do the
+# reasoning inside them. HARNESS_MODE=agent falls back to v1, where one agent with tools runs the whole job.
+HARNESS_MODE = os.getenv("HARNESS_MODE", "harness")  # harness | agent
+ANALYSIS_MAX_QUESTIONS = int(os.getenv("ANALYSIS_MAX_QUESTIONS", "6"))  # data questions in the first round of an analysis
+RESEARCH_MAX_QUESTIONS = int(os.getenv("RESEARCH_MAX_QUESTIONS", "8"))
+ANALYSIS_CRITIC = os.getenv("ANALYSIS_CRITIC", "on").lower() in ("on", "1", "true", "yes")  # the red-team step is always on for research
+WORKER_TPM_BUDGET = int(os.getenv("WORKER_TPM_BUDGET", "150000"))  # tokens per minute the workers may use on their deployment (keep under its quota)
+WORKER_PARALLELISM = int(os.getenv("WORKER_PARALLELISM", "2"))  # worker calls in flight at once, across all runs
+WORKER_TIMEOUT_S = float(os.getenv("WORKER_TIMEOUT_S", "900"))

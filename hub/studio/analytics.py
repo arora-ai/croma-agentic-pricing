@@ -402,32 +402,38 @@ class OpSpec:
     optional: dict[str, Any]
     outputs: list[str]
     scalar: bool = False  # takes figures, not a result table (reconcile, materiality)
+    columns: tuple[str, ...] = ()  # the params that name columns of the source result (the harness checks and remaps them after the data arrives)
 
 
 OPS: dict[str, OpSpec] = {s.name: s for s in [
     OpSpec("contribution", contribution, "What each segment (category, zone, store ...) added to the change in a total between two periods. Use for 'where did the change come from'.",
            ["key", "cur", "base"], {"min_share": 0.05, "abs_floor": 0.0},
            ["total_current", "total_base", "total_change", "total_change_pct", "gross_increase", "gross_decrease", "segments_up", "segments_down",
-            "top1_share_of_gross_pct", "top3_share_of_gross_pct", "top3_net_share_of_change_pct", "material_segments"]),
+            "top1_share_of_gross_pct", "top3_share_of_gross_pct", "top3_net_share_of_change_pct", "material_segments"], columns=("key", "cur", "base")),
     OpSpec("rate_mix", rate_mix, "Change in a RATIO (margin %, markdown %, average price) split, per segment, into a rate effect (the segment's own rate moved) and a mix effect "
            "(sales shifted towards or away from high-rate segments). Needs the numerator and the denominator of the ratio in both periods, for example profit and NMV for margin %. "
            "unit pp (default) shows effects in percentage points.",
            ["key", "cur_num", "cur_den", "base_num", "base_den"], {"unit": "pp", "min_share": 0.05, "abs_floor": 0.0},
-           ["base_rate", "current_rate", "rate_change", "rate_effect_total", "mix_effect_total", "rate_share_of_gross_pct", "mix_share_of_gross_pct", "top3_share_of_gross_pct", "material_segments"]),
+           ["base_rate", "current_rate", "rate_change", "rate_effect_total", "mix_effect_total", "rate_share_of_gross_pct", "mix_share_of_gross_pct", "top3_share_of_gross_pct", "material_segments"],
+           columns=("key", "cur_num", "cur_den", "base_num", "base_den")),
     OpSpec("price_volume_mix", price_volume_mix, "Change in a VALUE (NMV, sales) split, per segment, into volume (more units), mix (units moved between segments) and price (selling price moved). "
            "Needs quantity and value in both periods.",
            ["key", "cur_qty", "cur_value", "base_qty", "base_value"], {"min_share": 0.05, "abs_floor": 0.0},
            ["total_base_value", "total_current_value", "total_change", "total_change_pct", "volume_effect_total", "mix_effect_total", "price_effect_total",
-            "volume_share_of_gross_pct", "mix_share_of_gross_pct", "price_share_of_gross_pct", "base_average_price", "current_average_price", "average_price_change_pct"]),
+            "volume_share_of_gross_pct", "mix_share_of_gross_pct", "price_share_of_gross_pct", "base_average_price", "current_average_price", "average_price_change_pct"],
+           columns=("key", "cur_qty", "cur_value", "base_qty", "base_value")),
     OpSpec("target_gap", target_gap, "Actual against target (AOP or SOP) per segment: the gap, the achievement %, and how concentrated the shortfall is.",
            ["key", "actual", "target"], {},
-           ["total_actual", "total_target", "total_gap", "total_achievement_pct", "segments_below_target", "segments_at_or_above_target", "shortfall_total", "top3_shortfall_share_pct"]),
+           ["total_actual", "total_target", "total_gap", "total_achievement_pct", "segments_below_target", "segments_at_or_above_target", "shortfall_total", "top3_shortfall_share_pct"],
+           columns=("key", "actual", "target")),
     OpSpec("concentration", concentration, "How much of a total sits in the largest few segments (stores, SKUs, categories).",
-           ["key", "value"], {"top_n": 3}, ["total", "segment_count", "top3_share_pct", "segments_for_80pct", "hhi"]),
+           ["key", "value"], {"top_n": 3}, ["total", "segment_count", "top3_share_pct", "segments_for_80pct", "hhi"], columns=("key", "value")),
     OpSpec("trend", trend, "A series over time (daily, weekly, monthly): change, slope, peak, trough, volatility and direction (1 up, -1 down, 0 flat).",
            ["time", "value"], {"flat_pct": 1.0},
-           ["periods", "first_value", "last_value", "total_change", "total_change_pct", "slope_per_period", "peak_value", "trough_value", "volatility_pct", "latest_change_pct", "direction"]),
-    OpSpec("reconcile", reconcile, "Check that two figures that should agree do (for example a total from two different queries). Params a and b are cell references such as R3:SUM:cy_nmv.",
+           ["periods", "first_value", "last_value", "total_change", "total_change_pct", "slope_per_period", "peak_value", "trough_value", "volatility_pct", "latest_change_pct", "direction"],
+           columns=("time", "value")),
+    OpSpec("reconcile", reconcile, "Check that two figures that should agree do (for example a total from two different queries). Params a and b are cell references: RESULT:ROW:COLUMN "
+           "such as R3:SUM:cy_nmv (in an analysis plan write the question id for the result, for example q2:SUM:cur_nmv).",
            ["a", "b"], {"tolerance_pct": 0.5}, ["first", "second", "difference", "difference_pct", "within_tolerance"], scalar=True),
     OpSpec("materiality", materiality, "Is a change big enough, against the base it applies to, to be called a driver? Params change and base are cell references or numbers.",
            ["change", "base"], {"min_rel_pct": 2.0, "abs_floor": 0.0}, ["change", "base", "relative_change_pct", "material"], scalar=True),
