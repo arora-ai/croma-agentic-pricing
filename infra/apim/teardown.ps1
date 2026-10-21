@@ -84,4 +84,5 @@ if (-not $KeepEntraApps) {
     }
 }
 if (Test-Path "$root\.apim.env") { Remove-Item "$root\.apim.env" -Force; Write-Host "Deleted .apim.env" }
+Write-Host "Not removed (not an Azure resource): if you gave APIM's identity access in Databricks (deploy_apim.ps1 -GrantDatabricks), delete its service principal in the workspace (Settings, Identity and access, Service principals)."
 Write-Host "Done."
