@@ -21,6 +21,15 @@ from settings import AGENT_CALL_TIMEOUT_S, HARNESS_MODE, REPORT_TEAM
 mcp = FastMCP("agent-bridge", host="0.0.0.0", stateless_http=True, json_response=True)
 
 
+def _failure_text(agent: str, exc: Exception) -> str:
+    """What the calling agent is told. Out of model capacity is transient and says nothing about the question, so "try a smaller question" would
+    make the caller drop part of the work; the harness relies on the ERROR prefix to see a failed call."""
+    if "rate limit" in str(exc).lower():
+        return (f"ERROR: the {agent} agent is temporarily out of model capacity (token rate limit). The question is fine: "
+                "ask the same thing again in a minute.")
+    return f"ERROR: the {agent} agent could not answer ({type(exc).__name__}). Try a smaller question or continue without it."
+
+
 async def _call(agent: str, text: str, case_id: str) -> str:
     started = time.time()
     entry = {"at": time.strftime("%H:%M:%S"), "agent": agent, "case_id": case_id, "ask": text[:300]}
@@ -39,7 +48,7 @@ async def _call(agent: str, text: str, case_id: str) -> str:
         return answer
     except Exception as exc:
         entry.update(ok=False, error=f"{type(exc).__name__}: {str(exc)[:200]}")
-        answer = f"ERROR: the {agent} agent could not answer ({type(exc).__name__}). Try a smaller question or continue without it."
+        answer = _failure_text(agent, exc)
         return answer
     finally:
         entry["seconds"] = round(time.time() - started, 1)
