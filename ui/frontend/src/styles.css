@@ -56,6 +56,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .suggestions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left; }
 .suggestion { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 5px; transition: border-color .15s, box-shadow .15s, transform .15s; }
 .suggestion:hover { border-color: #b9dcd7; box-shadow: 0 2px 12px rgba(15, 118, 110, .08); transform: translateY(-1px); }
+.suggestion:last-child:nth-child(odd) { grid-column: 1 / -1; }
 .suggestion strong { font-size: 13.5px; font-weight: 600; }
 .suggestion span { font-size: 12.5px; color: var(--muted); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 

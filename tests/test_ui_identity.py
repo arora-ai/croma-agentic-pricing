@@ -281,6 +281,68 @@ def test_the_hubs_event_log_is_not_shared_between_users_unless_asked(api):
     assert api.hub_polls
 
 
+def test_a_reply_that_follows_tool_calls_is_kept_apart_from_the_words_before_them(api):
+    """The CX says "Updated: ... Running it now.", calls the specialists, then writes the answer as a second message: the chat must not run them together."""
+    def events():
+        item = lambda kind, type_: SimpleNamespace(type=kind, item=SimpleNamespace(type=type_, id="i"), sequence_number=1)  # noqa: E731
+        yield SimpleNamespace(type="response.created", response=SimpleNamespace(id="resp_1"), sequence_number=0)
+        yield item("response.output_item.added", "message")
+        yield SimpleNamespace(type="response.output_text.delta", delta="Updated: by zone. Running it now.", sequence_number=2)
+        yield item("response.output_item.added", "mcp_call")
+        yield item("response.output_item.added", "message")
+        yield SimpleNamespace(type="response.output_text.delta", delta="Stores NMV fell.", sequence_number=3)
+        yield SimpleNamespace(type="response.completed", response=SimpleNamespace(usage=SimpleNamespace(input_tokens=3, output_tokens=2)), sequence_number=4)
+
+    api.openai._events = events
+    frames = sse(api.client.post("/api/chat", json={"message": "Go"}).text)
+    final = next(data for kind, data in frames if kind == "final")["text"]
+    assert final == "Updated: by zone. Running it now.\n\nStores NMV fell."
+    assert "".join(d["text"] for k, d in frames if k == "delta") == final
+
+
+def test_a_dropped_stream_is_resumed_even_when_the_first_resume_fails_too(api):
+    """A Wi-Fi blip: the stream breaks mid-answer and the first attempt to pick it up again fails as well. The turn must carry on, not end with an error."""
+    def broken():
+        yield SimpleNamespace(type="response.created", response=SimpleNamespace(id="resp_1"), sequence_number=0)
+        yield SimpleNamespace(type="response.output_text.delta", delta="Hel", sequence_number=1)
+        raise ConnectionError("the connection dropped")
+
+    attempts = []
+
+    def retrieve(response_id, **kwargs):
+        attempts.append((response_id, kwargs))
+        if len(attempts) == 1:
+            raise ConnectionError("still offline")
+        return iter([SimpleNamespace(type="response.output_text.delta", delta="lo", sequence_number=2),
+                     SimpleNamespace(type="response.completed", response=SimpleNamespace(usage=SimpleNamespace(input_tokens=3, output_tokens=2)), sequence_number=3)])
+
+    api.openai._events = broken
+    api.openai.responses.retrieve = retrieve
+    api.monkeypatch.setattr(main.time, "sleep", lambda seconds: None)
+    frames = sse(api.client.post("/api/chat", json={"message": "Go"}).text)
+    assert [k for k, _ in frames if k == "error"] == []
+    assert next(d for k, d in frames if k == "final")["text"] == "Hello"
+    assert [kw["starting_after"] for _id, kw in attempts] == [1, 1] and all(kw["timeout"] is main.RESUME_TIMEOUT and kw["stream"] is True for _id, kw in attempts)
+    assert [d["msg"] for k, d in frames if k == "log" and "resuming" in d["msg"]] == ["Connection to the agent dropped (ConnectionError); resuming (1)",
+                                                                                      "Connection to the agent dropped (ConnectionError); resuming (2)"]
+
+
+def test_the_chat_gives_up_after_a_long_unbroken_run_of_failures(api):
+    def broken():
+        yield SimpleNamespace(type="response.created", response=SimpleNamespace(id="resp_1"), sequence_number=0)
+        raise ConnectionError("the connection dropped")
+
+    def offline(response_id, **kwargs):
+        raise ConnectionError("offline")
+
+    api.openai._events = broken
+    api.openai.responses.retrieve = offline
+    api.monkeypatch.setattr(main.time, "sleep", lambda seconds: None)
+    frames = sse(api.client.post("/api/chat", json={"message": "Go"}).text)
+    assert [k for k, _ in frames if k == "final"] == [] and [d for k, d in frames if k == "error"]
+    assert len([1 for k, d in frames if k == "log" and "resuming" in d["msg"]]) == main.MAX_RECONNECTS
+
+
 def test_a_slow_turn_sends_keep_alive_comments_when_asked(api):
     behind_gateway(api)
     api.monkeypatch.setattr(main, "HEARTBEAT_SECONDS", 0.2)

@@ -39,6 +39,9 @@ DIST = Path(__file__).parent.parent / "frontend" / "dist"
 CX_AGENT = os.getenv("CX_AGENT", NAMES["cx"])
 MODEL = os.getenv("AGENT_MODEL", "gpt-5.4-mini")
 POLL_SECONDS = 0.5
+# When a dropped agent stream is picked up again, fail fast and try again instead of waiting on a dead connection (the client's default is ten minutes).
+RESUME_TIMEOUT = httpx.Timeout(connect=15.0, read=120.0, write=30.0, pool=15.0)
+MAX_RECONNECTS = 40
 # Idle connections are cut after about four minutes (Azure load balancers, the Container Apps ingress), so behind a gateway a long turn needs a signal
 # now and then. A comment line is invisible to the browser's event parser. 0 (the default) sends none, so the stream is unchanged for local use.
 HEARTBEAT_SECONDS = float(os.getenv("SSE_HEARTBEAT_S", "0"))
@@ -322,6 +325,10 @@ async def chat(req: ChatRequest, who: Identity = Depends(require_identity)):
                 elif kind in ("response.output_item.added", "response.output_item.done"):
                     item = getattr(event, "item", None)
                     item_type = getattr(item, "type", "")
+                    if item_type == "message" and kind.endswith("added") and text:
+                        # A reply that follows tool calls is a new message ("Updated: ... Running it now." and then the answer): keep them apart.
+                        text.append("\n\n")
+                        put("delta", {"text": "\n\n"})
                     if item_type == "memory_search_call":
                         item_id = getattr(item, "id", "")
                         base = {"id": item_id, "server": "memory", "tool": "search_memories", "caller": "cx", "ts": _now_ms(), "seq": -3}
@@ -349,29 +356,32 @@ async def chat(req: ChatRequest, who: Identity = Depends(require_identity)):
 
             # A long turn (a full report takes many minutes) outlives a single streamed HTTP connection, which the service cuts at about ten minutes.
             # So the response runs in the background, and if the stream drops it is resumed from the last event received.
+            reconnects = 0
             stream = client.responses.create(conversation=conversation, input=req.message, stream=True, background=True,
                                              extra_body={"agent_reference": {"name": CX_AGENT, "type": "agent_reference"}}, **agent_headers)
-            reconnects = 0
             while not state["done"]:
                 try:
+                    if stream is None:
+                        # Picking the response up again is a network call too: when it fails (a Wi-Fi blip) that is one more try, not the end of the turn.
+                        time.sleep(3)
+                        stream = client.responses.retrieve(state["id"], stream=True, starting_after=state["seq"], timeout=RESUME_TIMEOUT)
                     for event in stream:
                         handle(event)
+                        reconnects = 0  # events are flowing: only an unbroken run of failures counts against the limit
                 except RuntimeError:
                     raise
                 except Exception as exc:
-                    if not state["id"] or reconnects >= 40:
+                    if not state["id"] or reconnects >= MAX_RECONNECTS:
                         raise
                     reconnects += 1
                     put("log", {"level": "warn", "msg": f"Connection to the agent dropped ({type(exc).__name__}); resuming ({reconnects})"})
-                    time.sleep(3)
-                    stream = client.responses.retrieve(state["id"], stream=True, starting_after=state["seq"])
+                    stream = None
                     continue
                 if not state["done"]:  # the stream closed cleanly before the response finished: pick it up again
-                    if not state["id"] or reconnects >= 40:
+                    if not state["id"] or reconnects >= MAX_RECONNECTS:
                         raise RuntimeError("The agent stream ended before the answer was complete.")
                     reconnects += 1
-                    time.sleep(3)
-                    stream = client.responses.retrieve(state["id"], stream=True, starting_after=state["seq"])
+                    stream = None
             put("final", {"text": "".join(text), "seconds": round(time.time() - started, 1), **usage})
         except Exception as exc:
             put("error", {"message": _friendly(exc)})

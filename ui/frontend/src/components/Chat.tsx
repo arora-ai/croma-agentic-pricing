@@ -11,6 +11,8 @@ import { ReportCard, ReportProgress, isReportRun } from "./ReportCard";
 // Starter prompts shown on an empty chat. Dates are relative on purpose so they work against any data set; edit freely.
 const SUGGESTIONS = [
   { title: "Why did store margin move?", text: "Why did merchandise margin % for Stores move last month versus the month before? Show the biggest category drivers." },
+  { title: "Analysis: what drove the change in NMV?", text: "How did Stores NMV move last month versus the month before, and what drove it: volume, mix or price?" },
+  { title: "Research: test the explanations for a margin rise", text: "Why did Stores merchandise margin % rise last month versus the month before? Which explanations hold up and which do not: category mix, margin rates inside the categories, markdowns, or a few big products?" },
   { title: "Tracking against AOP", text: "How are we tracking against AOP month to date? Show NMV achievement by channel and the categories furthest behind." },
   { title: "Zones gaining or losing share", text: "Which zones are gaining or losing share in store volume, comparing the latest full week with the same week last year?" },
   { title: "Weekly performance report", text: "Create a standard weekly performance report for the CEO office for the latest full week versus the same week last year, enterprise level, with channel, category and zone drivers and recommended actions." },
