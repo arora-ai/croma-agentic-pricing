@@ -10,11 +10,14 @@
     4. the Foundry project connections and agent made by the optional tool-gateway probe (<prefix>-apimprobe-*), if they exist
     5. the Entra app registrations recorded in .apim.env by create_entra_app.ps1
     6. .apim.env itself (it holds subscription keys that stop working anyway)
-  It never touches the hub, the agents, the memory store, the v1 resources or the other connections.
+  It never touches the hub, the agents, the memory store, the v1 resources or the other connections. The one exception: with -RestoreDirect it first puts the
+  live Foundry connections (<prefix>-hub-*) back to the hub (create_hub_connection.ps1 -Direct). It refuses to delete the gateway while those connections,
+  or the hub's Databricks access (DATABRICKS_AUTH=apim), still go through it, because the agents would lose their tools.
 
 .EXAMPLE
   .\infra\apim\teardown.ps1                # lists what would be deleted
   .\infra\apim\teardown.ps1 -Yes           # deletes it
+  .\infra\apim\teardown.ps1 -Yes -RestoreDirect   # switches the live connections back to the hub, then deletes it
 #>
 [CmdletBinding()]
 param(
@@ -23,7 +26,9 @@ param(
     [string]$ChatApp,
     [switch]$KeepChatApp,
     [switch]$KeepEntraApps,
-    [switch]$NoPurge
+    [switch]$NoPurge,
+    [switch]$RestoreDirect,                 # put the live <prefix>-hub-* connections back to the hub before deleting
+    [switch]$IgnoreLive                     # delete even if the live connections or the hub still go through the gateway (they will stop working)
 )
 $ErrorActionPreference = "Continue"
 $root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
@@ -47,12 +52,31 @@ $project = "$($Cfg.FoundryScope)/projects/$($Cfg.Project)"
 $probeConnections = @("genie", "agents", "context", "studio") | ForEach-Object { "$prefix-apimprobe-hub-$_" }
 $probeFound = @($probeConnections | Where-Object { az rest --method GET --url "https://management.azure.com$project/connections/$_`?api-version=2025-04-01-preview" --query name -o tsv 2>$null })
 
+# The live connections and the hub must not depend on the gateway when it goes.
+$gatewayUrl = if ($apimEnv["APIM_GATEWAY_URL"]) { $apimEnv["APIM_GATEWAY_URL"] } else { "https://$apimName.azure-api.net" }
+$gatewayHost = ([uri]$gatewayUrl).Host
+$viaGateway = @(@("genie", "agents", "context", "studio") | ForEach-Object { "$prefix-hub-$_" } | Where-Object {
+    "$(az rest --method GET --url "https://management.azure.com$project/connections/$_`?api-version=2025-04-01-preview" --query properties.target -o tsv 2>$null)" -like "*$gatewayHost*" })
+$hubDataViaGateway = "$(az containerapp show -n $Cfg.App -g $Cfg.ResourceGroup --query "properties.template.containers[0].env[?name=='DATABRICKS_AUTH'].value | [0]" -o tsv 2>$null)" -eq "apim"
+
 Write-Host "This would delete:"
 if ($rgExists) { Write-Host "  resource group ${ResourceGroup}:"; az resource list -g $ResourceGroup --query "[].{type:type, name:name}" -o tsv 2>$null | ForEach-Object { Write-Host "      $_" } } else { Write-Host "  (resource group $ResourceGroup does not exist)" }
 if ($chatExists -and -not $KeepChatApp) { Write-Host "  container app $ChatApp in $($Cfg.ResourceGroup), and its role assignments on the Foundry account" }
 if ($probeFound) { Write-Host "  Foundry connections: $($probeFound -join ', ') (and the agent $prefix-apimprobe)" }
 if (-not $KeepEntraApps) { foreach ($k in "ENTRA_APP_OBJECT_ID", "ENTRA_TEST_APP_OBJECT_ID") { if ($apimEnv[$k]) { Write-Host "  Entra app registration $($apimEnv[$k])  ($k)" } } }
+if ($viaGateway) { Write-Host "`nWARNING: these live Foundry connections point at the gateway: $($viaGateway -join ', '). Deleting the gateway breaks the agents' tools. Switch them back first (.\infra\create_hub_connection.ps1 -Direct), or pass -RestoreDirect." -ForegroundColor Yellow }
+if ($hubDataViaGateway) { Write-Host "`nWARNING: the hub reaches Databricks through the data gateway (DATABRICKS_AUTH=apim). Set Genie.AuthMode back in infra\config.ps1 and run .\infra\deploy_hub.ps1 first." -ForegroundColor Yellow }
 if (-not $Yes) { Write-Host "`nNothing was deleted. Run again with -Yes to delete it."; return }
+
+if ($viaGateway -and $RestoreDirect) {
+    Write-Host "Putting the live connections back to the hub (create_hub_connection.ps1 -Direct)"
+    & "$root\infra\create_hub_connection.ps1" -Direct
+    $viaGateway = @()
+}
+if (($viaGateway -or $hubDataViaGateway) -and -not $IgnoreLive) {
+    Write-Host "`nStopped before deleting anything: the live system still depends on the gateway (see the warnings above). Fix that, or pass -IgnoreLive to delete it anyway." -ForegroundColor Red
+    return
+}
 
 if ($chatExists -and -not $KeepChatApp) {
     $principal = az containerapp show -n $ChatApp -g $Cfg.ResourceGroup --query identity.principalId -o tsv 2>$null

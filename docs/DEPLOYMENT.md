@@ -295,6 +295,7 @@ Everything about it, including how to switch the Foundry connections and the hub
 | `deploy_agents` or the chat UI: "Failed to invoke the Azure CLI" | The Azure CLI took longer than the credential's patience to hand out a token (a busy laptop). The code waits up to 90 seconds; run `az account show` to confirm you are signed in, then retry. |
 | An analysis or research answer says "left out because its figures could not be traced" | The Analyst quoted a figure that is not in the evidence twice. The run's stages (`GET /runs/<case>?data=1`) show what it wrote. Usually a sign the question is outside what the plan computed: ask it more narrowly. |
 | The analysis headline differs from the figure the business reports | The data space computed the ratio on a different basis than the business uses. Look at the "Checks passed" and "Caveats" lines of the brief (a failed reconcile says so), and describe the ratio's definition in `data_profile.json` `facts` and `standing_scope`. |
+| An agent call fails with "temporarily out of model capacity" (in the hub's `/trace`: "did not complete (... exceeded token rate limit)") | The model deployment's token limit was hit. The hub already waits and retries, and the report team retries a failed specialist, so a long report usually finishes anyway, only later. If it keeps happening, raise the quota of the deployment (`gpt-6-sol` by default) or give the report team its own deployment with `REPORT_MODEL`. |
 
 ## Private networking: a decision to make early
 

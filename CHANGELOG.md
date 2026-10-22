@@ -10,7 +10,10 @@ Added
 - `integrations/genie/grant_hub_access.py`: gives the hub's managed identity its Databricks access.
 - Chat UI: Plan / Get data / Compute / Conclude / Verify figures / Challenge / Deliver stepper, harness stage on the Analysis and Research nodes, worker dots, stage lines in the logs, and a collapsible full brief under the answer. Chat API: `/api/runs/<case>`.
 - `tests/harness_call.py`: run a harness on the hub with per-stage timings.
-- API gateway integration: see `docs/APIM.md` (front gateway, tool gateway, data tool gateway).
+- API gateway integration: see `docs/APIM.md` (front gateway with Entra sign-in and per-user history and memory, tool gateway for the agents' calls to the hub, data gateway for the hub's calls to Databricks; Bicep, policies, deploy, live test and teardown scripts). Its live checks pass (59 passed, 0 failed, the paid model and Genie checks skipped on the re-run) and a real harness turn was run through the front and tool gateways with the real agents.
+- The chat's report card fetches report files with the access token when sign-in is on (a plain link cannot carry one); `/api/runs/<case>` is an operation on the front gateway.
+- `teardown.ps1` refuses to delete the gateway while the live Foundry connections or the hub's Databricks access still use it (`-RestoreDirect` switches the connections back first).
+- The agent bridge tells a calling agent when a failure is the model's token rate limit ("ask again in a minute") instead of advising a smaller question.
 
 Changed
 - `ask_analysis_agent` and `ask_research_agent` return a finished, checked brief instead of a short summary; the CX prompt relays it.
