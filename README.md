@@ -23,9 +23,10 @@ produce a designed, audited business report (Word, with charts and an evidence a
         hub data tool  ->  backend: Databricks Genie | your function | stub
 ```
 
-- **CX** talks the request through before any work starts: it says back what it understood, then asks only the few questions whose answers would change the analysis
-  (what "category drivers" means, the purpose, the depth), offers options with a suggested default, and proceeds when you say "go with your suggestions".
-  Plain lookups skip all of that. See `agents/prompts/cx.md`.
+- **CX** talks the request through before any work starts. It says back what it understood, asks only the few questions whose answers would change the analysis
+  (what "category drivers" means, the purpose, the depth), and then **shows the plan it will run and waits**: the exact dates, the scope and defaults, the measure and the cut,
+  and every assumption it made, flagged so you can change it. Nothing runs until you reply "go ahead" or tell it what to change (a change is applied and run in one step). You
+  can waive the check in the conversation ("go ahead, no further questions"). Plain lookups skip all of that. See `agents/prompts/cx.md`.
 - **Lookup** answers one-figure questions on a fast path. **Analysis** decomposes a number (what happened, how big). **Research** tests causes (why, is X true).
   In v2 both are harnesses (`hub/harness/`): code owns the stages, the arithmetic and the checks, and three model workers (Scoper, Analyst, Critic) reason inside them. Drivers are
   computed exactly (rate versus mix, price versus volume versus mix), every figure is traced to the data, and research hypotheses are decided by rules over computed figures.
