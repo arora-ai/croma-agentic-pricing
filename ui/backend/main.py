@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 import os
 import re
 import threading
@@ -45,6 +46,15 @@ MAX_RECONNECTS = 40
 # Idle connections are cut after about four minutes (Azure load balancers, the Container Apps ingress), so behind a gateway a long turn needs a signal
 # now and then. A comment line is invisible to the browser's event parser. 0 (the default) sends none, so the stream is unchanged for local use.
 HEARTBEAT_SECONDS = float(os.getenv("SSE_HEARTBEAT_S", "0"))
+WORD_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def register_media_types() -> None:
+    """The container image has no system table of media types, so the sample report's Word file would be served as an untyped download."""
+    mimetypes.add_type(WORD_TYPE, ".docx")
+
+
+register_media_types()
 
 # Every API route needs an identity (a no-op without GATEWAY_KEY). Behind the gateway the interactive API docs are not served.
 app = FastAPI(title="Croma assistant", dependencies=[Depends(require_identity)],
