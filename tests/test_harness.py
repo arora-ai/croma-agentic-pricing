@@ -58,9 +58,10 @@ class Script:
         return sum(1 for _r, t, _b in self.calls if t == task)
 
 
-def data_agent(tables):
+def data_agent(tables, shown=None):
     """A stub Data agent: registers the matching table in the ledger the way the Genie gateway does and answers citing its result id.
-    Unless the test says there is no data at all ({}), the data space's own margin % is available as well."""
+    Unless the test says there is no data at all ({}), the data space's own margin % is available as well. `shown` maps a question's key to the table the
+    agent writes in its answer (which may be in another unit from the ledger rows)."""
     tables = {**TABLES, **tables} if tables else tables
     asked = []
 
@@ -69,15 +70,16 @@ def data_agent(tables):
         for key, payload in tables.items():
             if key in question:
                 rid = ledger.register_genie(case_id, {**payload, "question": question})
-                return f"| a | b |\n|---|---|\n| 1 | 2 |\n\nSource: Result {rid}; Stores only; Miscellaneous and Charges excluded."
+                table = (shown or {}).get(key, "| a | b |\n|---|---|\n| 1 | 2 |")
+                return f"{table}\n\nSource: Result {rid}; Stores only; Miscellaneous and Charges excluded."
         return "ERROR: the data agent could not answer (TimeoutError)."
 
     ask.asked = asked
     return ask
 
 
-def make_deps(tables, saved):
-    return runtime.Deps(ask_data=data_agent(tables), worker=workers.call_worker, save_finding=lambda *a: saved.append(a), get_case=lambda cid: None)
+def make_deps(tables, saved, shown=None):
+    return runtime.Deps(ask_data=data_agent(tables, shown), worker=workers.call_worker, save_finding=lambda *a: saved.append(a), get_case=lambda cid: None)
 
 
 def figures(body, step="s1"):
@@ -106,11 +108,11 @@ def clean():
     workers.set_invoker(None)
 
 
-def run_harness(name, case, script, tables, brief="Why did margin move?"):
+def run_harness(name, case, script, tables, brief="Why did margin move?", shown=None):
     workers.set_invoker(script)
     ledger._cases.pop(case, None)
     saved = []
-    run = asyncio.run(execute(name, brief, case, make_deps(tables, saved)))
+    run = asyncio.run(execute(name, brief, case, make_deps(tables, saved, shown)))
     return run, saved
 
 
@@ -405,6 +407,47 @@ def test_the_filters_the_data_space_applied_reach_the_workers():
     sql = "WITH a AS (SELECT x FROM t WHERE `Channel_Flag` = 'Offline' AND g NOT IN ('M','C') GROUP BY x), b AS (SELECT y FROM u WHERE flag = 'Yes') SELECT * FROM a JOIN b"
     assert core.where_filters(sql) == ["Channel_Flag = 'Offline' AND g NOT IN ('M','C')", "flag = 'Yes'"]
     assert core.where_filters("SELECT 1") == [] and core.where_filters("") == []
+
+
+RAW_RUPEES = {"columns": ["category", "cur_nmv", "base_nmv"], "rows": [["Phones", 1_500_000_000.0, 1_000_000_000.0], ["Laptops", 400_000_000.0, 1_000_000_000.0]],
+              "sql": "SELECT category, SUM(NetSaleValue) AS cur_nmv FROM t WHERE Channel_Flag = 'Offline' GROUP BY category"}  # the data space ignored "in crore"
+SHOWN_IN_CRORE = ("| category | cur_nmv (\u20b9 Cr) | base_nmv (\u20b9 Cr) |\n|---|---:|---:|\n| Phones | 150.00 | 100.00 |\n| Laptops | 40.00 | 100.00 |")
+NMV_PLAN = {**PLAN, "kpi": "Stores NMV", "questions": [{"id": "q1", "purpose": "category cut", "ask": "For Stores only, by category: NMV in \u20b9 Crore for September and August 2026.",
+                                                        "columns": ["category", "cur_nmv", "base_nmv"]}],
+            "steps": [{"id": "s1", "label": "NMV change by category", "op": "contribution", "source": "q1", "params": {"key": "category", "cur": "cur_nmv", "base": "base_nmv"}}]}
+
+
+def test_a_result_in_rupees_is_analysed_in_the_unit_the_answer_shows():
+    """The failure seen live: the SQL returned rupees, the Data agent showed crore, and the analysis labelled rupee-sized figures as crore."""
+    seen = {}
+
+    def analyst(body):
+        seen["evidence"] = body["evidence"]
+        f = figures(body)
+        return {"findings": {"headline": f"Stores NMV fell from {f['total_base']['shown']} to {f['total_current']['shown']} ({f['total_change']['shown']}).",
+                             "drivers": [], "not_drivers": [], "basis": [], "caveats": [], "gaps": [], "next_questions": []}}
+
+    script = Script(analysis_plan=NMV_PLAN, analysis_findings=analyst, review_analysis=ACCEPT)
+    run, _saved = run_harness("analysis", "C-h19", script, {"by category": RAW_RUPEES}, shown={"by category": SHOWN_IN_CRORE})
+    assert run.status == "done", run.error
+    g = run.data["gather"]["q1"]
+    assert g["result_id"] == "R1" and g["scaled_id"] == "T1" and g["scales"] == {"cur_nmv": 1e7, "base_nmv": 1e7}
+    assert ledger.get_table("C-h19", "R1").rows[0][1] == 1_500_000_000.0  # the raw rows stay the evidence
+    assert ledger.get_table("C-h19", "T1").rows[0][1] == pytest.approx(150.0)
+    md = run.result["markdown"]
+    assert "Stores NMV fell from \u20b9200.00 Cr to \u20b9190.00 Cr (-\u20b910.00 Cr)." in md and "2,000,000,000" not in md and "-100,000,000" not in md
+    data = next(d for d in seen["evidence"]["data"] if d["id"] == "q1")
+    assert data["result"] == "R1" and "divided by 10,000,000" in data["unit_note"] and data["filters"] == ["Channel_Flag = 'Offline'"]  # the critic sees the conversion
+    assert "R1" in md and "T1" in md.splitlines()[-1]  # the evidence line names the rescaled copy too
+
+
+def test_a_result_already_in_the_shown_unit_is_used_as_it_is():
+    script = Script(analysis_plan=NMV_PLAN, analysis_findings=lambda body: {"findings": {"headline": f"Stores NMV changed by {figures(body)['total_change']['shown']}.", "drivers": []}},
+                    review_analysis=ACCEPT)
+    in_crore = {**RAW_RUPEES, "rows": [["Phones", 150.0, 100.0], ["Laptops", 40.0, 100.0]]}
+    run, _saved = run_harness("analysis", "C-h20", script, {"by category": in_crore}, shown={"by category": SHOWN_IN_CRORE})
+    assert run.status == "done", run.error
+    assert "scaled_id" not in run.data["gather"]["q1"] and "-\u20b910.00 Cr" in run.result["markdown"]
 
 
 def test_figures_and_table_titles_are_written_the_way_a_business_reader_expects():

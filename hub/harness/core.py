@@ -7,6 +7,7 @@ import copy
 import re
 from typing import Any
 
+from harness import units
 from harness.runtime import Ctx, HarnessError
 from harness.schemas import FixedSteps, FollowUp, Materiality, Plan, Question, Step
 from harness.workers import WorkerError
@@ -51,11 +52,28 @@ async def gather(ctx: Ctx, questions: list[Question], stage: str) -> dict[str, d
             rid = None if answer.startswith("ERROR") else pick_result(ctx.case_id, answer, q.columns, taken)
         if rid:
             taken.add(rid)
-        results[q.id] = {"result_id": rid, "ask": ask, "answer": answer[:1800]}
+        results[q.id] = {"result_id": rid, "ask": ask, "answer": answer[:1800], **same_unit(ctx.case_id, rid, answer)}
         ctx.checkpoint(stage, results)
 
     await asyncio.gather(*(one(q) for q in todo))
     return {q.id: results[q.id] for q in questions}
+
+
+def same_unit(case_id: str, rid: str | None, answer: str) -> dict:
+    """When the ledger result is in a different unit from the table the Data agent showed (rupees against crore), the id of a rescaled copy to analyse. A unit check
+    must never stop an analysis, so a result that cannot be compared is simply used as it is."""
+    if not rid:
+        return {}
+    try:
+        factors, scaled = units.align(case_id, rid, answer)
+    except Exception:
+        return {}
+    return {"scales": factors, "scaled_id": scaled} if scaled else {}
+
+
+def analysed_id(g: dict) -> str:
+    """The ledger table an analysis reads for this question: the rescaled copy when there is one, else the result itself."""
+    return g.get("scaled_id") or g.get("result_id") or ""
 
 
 # ---------------------------------------------------------------- columns
@@ -156,7 +174,7 @@ def _rewrite(value: Any, mapping: dict[str, str]) -> Any:
 def resolve_refs(params: dict, gathered: dict[str, dict], step_outputs: dict[str, dict[str, str]] | None = None) -> dict:
     """Lets a plan point at things that do not have ids yet. 'q2:SUM:cur_nmv' becomes 'R7:SUM:cur_nmv' (a question's result); 's1.current_rate' becomes 'D14'
     (a figure an earlier step produced)."""
-    mapping = {qid: g["result_id"] for qid, g in gathered.items() if g.get("result_id")}
+    mapping = {qid: analysed_id(g) for qid, g in gathered.items() if g.get("result_id")}
     out = {}
     for k, v in params.items():
         if isinstance(v, str):
@@ -190,7 +208,7 @@ def compute(case_id: str, steps: list[Step], gathered: dict[str, dict], material
                         params.setdefault(name, value)
             source = ""
             if step.source:
-                source = (gathered.get(step.source) or {}).get("result_id") or ""
+                source = analysed_id(gathered.get(step.source) or {})
                 if not source:
                     raise analytics.AnalyticsError(f"question {step.source} returned no data")
             run = analyze.run_op(case_id, step.op, source, params, step.label, preview_rows=MAX_PACK_ROWS + 4)
@@ -288,6 +306,8 @@ def evidence_pack(case_id: str, plan: Plan, questions: list[Question], gathered:
             entry["rows"] = len(c.tables[rid].rows)
             entry["data_space_note"] = data_note(g.get("answer", ""))
             entry["filters"] = where_filters(c.tables[rid].sql)
+            if g.get("scaled_id"):
+                entry["unit_note"] = units.describe(g.get("scales") or {}, g["scaled_id"])
         else:
             entry["problem"] = "no usable data came back: " + data_note(g.get("answer", ""), 240)
         data.append(entry)
@@ -459,7 +479,7 @@ def passed_checks(results: list[dict]) -> list[str]:
 
 def evidence_line(case_id: str, gathered: dict[str, dict], results: list[dict], run_id: str, kind: str) -> str:
     data = sorted({g["result_id"] for g in gathered.values() if g.get("result_id")}, key=lambda r: int(r[1:]))
-    tables = [r["table"] for r in results if r.get("ok") and not analytics.OPS[r["op"]].scalar]
+    tables = sorted({g["scaled_id"] for g in gathered.values() if g.get("scaled_id")}, key=lambda t: int(t[1:])) + [r["table"] for r in results if r.get("ok") and not analytics.OPS[r["op"]].scalar]
     return f"*Evidence: data results {', '.join(data) or 'none'}; tables {', '.join(tables) or 'none'}. {kind} run {run_id}, case {case_id}.*"
 
 

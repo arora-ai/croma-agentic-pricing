@@ -298,6 +298,30 @@ def derive_table(case_id: str, label: str, source: str, add_columns: list[dict] 
         return c.tables[tid].brief()
 
 
+def rescale_table(case_id: str, source: str, factors: dict[str, float], label: str = "") -> str:
+    """A copy of a result with some columns divided by a factor (rupees to crore: 10,000,000; a fraction to a percentage: 0.01), kept as a derived table. The original
+    rows, and the SQL that produced them, stay the evidence; the copy is what an analysis computes on when the answer shown to the user used another unit.
+    Returns the new table's id."""
+    with _lock:
+        c = case(case_id)
+        base = get_table(case_id, source)
+        divide = {base.col_index(name): float(f) for name, f in factors.items()}
+        rows = []
+        for r in base.rows:
+            row = list(r)
+            for i, f in divide.items():
+                try:
+                    row[i] = to_number(row[i]) / f
+                except (ValueError, TypeError):
+                    pass  # a label or an empty cell stays as it is
+            rows.append(row)
+        how = ", ".join(f"{base.columns[i]} divided by {f:,.0f}" if f >= 1 else f"{base.columns[i]} divided by {f:g}" for i, f in divide.items())
+        tid = c.next_id("T")
+        c.tables[tid] = Table(id=tid, kind="derived", label=label or f"{base.id} in the unit the answer shows", columns=list(base.columns), rows=rows, question=base.question,
+                              lineage=f"from {base.id}: {how}", truncated=base.truncated)
+        return tid
+
+
 def dump(case_id: str) -> dict:
     """The whole ledger of a case as plain data (for export, so a case survives a redeploy and can be kept as a test fixture)."""
     c = case(case_id)
