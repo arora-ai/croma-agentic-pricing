@@ -1,5 +1,6 @@
-import { PanelLeft, PanelRight, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Info, MessageSquare, PanelLeft, PanelRight, Plus } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { About } from "./components/about/About";
 import { Boundary } from "./components/Boundary";
 import { Chat } from "./components/Chat";
 import { Sidebar } from "./components/Sidebar";
@@ -8,14 +9,29 @@ import { Topology } from "./components/Topology";
 import { buildCalls, buildStages } from "./lib";
 import { useChat } from "./store";
 
+type View = "chat" | "about";
+const viewFromHash = (): View => (window.location.hash === "#about" ? "about" : "chat");
+
 export default function App() {
   const { state, send, reset, open, remove, rename } = useChat();
   const [sidebar, setSidebar] = useState(true);
   const [admin, setAdmin] = useState(true);
   const [tab, setTab] = useState<Tab>("activity");
+  const [view, setView] = useState<View>(viewFromHash);
   const latest = useMemo(() => buildCalls(state.events).filter((c) => c.turn === state.turn), [state.events, state.turn]);
   const latestStages = useMemo(() => buildStages(state.events).filter((s) => s.turn === state.turn), [state.events, state.turn]);
   const live = state.running;
+
+  // "#about" is a link to the About tab; the chat keeps running while it is open
+  useEffect(() => {
+    const onHash = () => setView(viewFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const go = (next: View) => {
+    setView(next);
+    window.history.replaceState(null, "", next === "about" ? "#about" : window.location.pathname + window.location.search);
+  };
 
   const showMemory = () => {
     setAdmin(true);
@@ -26,38 +42,46 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <button className={`ghost icon ${sidebar ? "on" : ""}`} onClick={() => setSidebar(!sidebar)} aria-label="Toggle chat history" title="Chat history"><PanelLeft size={17} /></button>
+          {view === "chat" && <button className={`ghost icon ${sidebar ? "on" : ""}`} onClick={() => setSidebar(!sidebar)} aria-label="Toggle chat history" title="Chat history"><PanelLeft size={17} /></button>}
           <span className="logo">C</span>
           <span className="name">Croma <em>Pricing Assistant</em></span>
         </div>
+        <nav className="view-tabs" aria-label="Sections">
+          <button className={view === "chat" ? "on" : ""} onClick={() => go("chat")} aria-current={view === "chat" ? "page" : undefined}><MessageSquare size={15} />Chat</button>
+          <button className={view === "about" ? "on" : ""} onClick={() => go("about")} aria-current={view === "about" ? "page" : undefined}><Info size={15} />About this app</button>
+        </nav>
         <div className="actions">
           <span className={`conn ${state.health?.hub ? "up" : "down"}`} title={state.health ? `Foundry project ${state.health.project}` : "Checking…"}>
             <i />{state.health ? (state.health.hub ? "Connected" : "Hub unreachable") : "Connecting…"}
           </span>
-          {!sidebar && <button className="ghost" onClick={reset} disabled={state.running || state.messages.length === 0}><Plus size={15} />New chat</button>}
-          <button className={`ghost icon ${admin ? "on" : ""}`} onClick={() => setAdmin(!admin)} aria-label="Toggle admin view" title="Admin view"><PanelRight size={17} /></button>
+          {view === "chat" && !sidebar && <button className="ghost" onClick={reset} disabled={state.running || state.messages.length === 0}><Plus size={15} />New chat</button>}
+          {view === "chat" && <button className={`ghost icon ${admin ? "on" : ""}`} onClick={() => setAdmin(!admin)} aria-label="Toggle admin view" title="Admin view"><PanelRight size={17} /></button>}
         </div>
       </header>
 
-      <main className={`layout ${sidebar ? "sb" : ""} ${admin ? "ad" : ""}`}>
-        {sidebar && (
-          <Sidebar state={state} disabled={state.running} onNew={reset} onOpen={open} onRename={rename} onDelete={remove} onMemory={showMemory} />
-        )}
-        <Chat state={state} onSend={send} />
-        {admin && (
-          <aside className="admin">
-            <div className="admin-head">
-              <span>Admin view</span>
-              <span className={`live ${live ? "on" : ""}`}><i />{live ? "Live" : "Idle"}</span>
-            </div>
-            <div className="card network">
-              <div className="card-title">Agent network<span>{state.health?.project ?? ""}</span></div>
-              <Boundary label="The network view"><Topology calls={latest} running={live} genieBackend={state.health?.genie_backend} stages={latestStages} /></Boundary>
-            </div>
-            <Telemetry state={state} tab={tab} setTab={setTab} />
-          </aside>
-        )}
-      </main>
+      {view === "about" ? (
+        <About health={state.health} onOpenChat={() => go("chat")} />
+      ) : (
+        <main className={`layout ${sidebar ? "sb" : ""} ${admin ? "ad" : ""}`}>
+          {sidebar && (
+            <Sidebar state={state} disabled={state.running} onNew={reset} onOpen={open} onRename={rename} onDelete={remove} onMemory={showMemory} />
+          )}
+          <Chat state={state} onSend={send} />
+          {admin && (
+            <aside className="admin">
+              <div className="admin-head">
+                <span>Admin view</span>
+                <span className={`live ${live ? "on" : ""}`}><i />{live ? "Live" : "Idle"}</span>
+              </div>
+              <div className="card network">
+                <div className="card-title">Agent network<span>{state.health?.project ?? ""}</span></div>
+                <Boundary label="The network view"><Topology calls={latest} running={live} genieBackend={state.health?.genie_backend} stages={latestStages} /></Boundary>
+              </div>
+              <Telemetry state={state} tab={tab} setTab={setTab} />
+            </aside>
+          )}
+        </main>
+      )}
     </div>
   );
 }
