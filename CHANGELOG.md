@@ -3,6 +3,9 @@
 ## v2.0.0 (branch `v2`)
 
 Added
+- **A plan check in the CX agent.** It now shows the plan it will run (exact dates, scope and defaults, measure and cut, and every assumption flagged) and waits for "go ahead" or a change before any specialist runs. A change is applied and run in one step; an explicit "no further questions" in the conversation, or a plain lookup, skips the check. (Before, it stated its assumptions and started in the same reply.)
+- **Unit alignment** (`hub/harness/units.py`): when the data space returns rupees but the Data agent shows crore, the analysis runs on a rescaled copy of the result, so figures are in the unit the user is shown. The raw result stays the evidence.
+- Two one-click starters in the chat (Analysis: what drove the change in NMV; Research: test the explanations for a margin rise).
 - **Analysis and Research as harnesses** (`hub/harness/`): code-owned stages (scope, evidence, evaluate, conclude, verify, challenge, deliver), typed worker contracts with one repair, a token governor, resumable runs saved stage by stage, and `GET /runs/<case>`. Workers: Scoper, Analyst, Critic (Foundry agents with no tools). `HARNESS_MODE=agent` keeps the v1 single-agent behaviour. See `docs/V2.md`.
 - **Deterministic analytics engine** (`hub/studio/analytics.py`, `analyze.py`): contribution, rate versus mix, price versus volume versus mix, target gap, concentration, trend, reconcile, materiality; exact decompositions with unit tests and a random exactness check. Exposed to the report team as the studio tool `analyze`.
 - **Guardrails from live runs**: a decomposed ratio must be reconciled with the data space's own figure; figures are traced to the evidence ledger and untraceable ones removed; the standing scope and units go in every data question; the filters each result applied are shown to the Critic.
