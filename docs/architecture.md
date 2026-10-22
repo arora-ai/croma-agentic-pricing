@@ -4,6 +4,8 @@ End state on Microsoft Foundry plus Databricks. The data layer is pluggable: the
 
 Solid lines are in scope. Dashed lines and boxes are later phases or still to be designed.
 
+The v2 build, with the three API gateways, the journey harnesses and the guardrails, is drawn as an interactive diagram on the chat UI's **About this app** tab (click a box to see what it does and where it lives). Its source is `ui/frontend/src/components/about/architecture.ts`; the diagram below is the original end-state plan.
+
 ## 1. End-state architecture
 
 ```mermaid

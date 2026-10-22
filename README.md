@@ -49,7 +49,7 @@ The full target architecture (including later phases such as API gateways, Teams
 | `hub/studio/` | The report studio: ledger, calc, audit, renderers, `playbook.md`, and the deterministic analytics engine (`analytics.py`, `analyze.py`) |
 | `integrations/genie/` | How to connect your Genie space or data agent, an example custom backend, and `try_question.py` |
 | `infra/` | PowerShell deploy scripts and `config.example.ps1`. `infra/apim/` is the optional Azure API Management layer (Bicep, policies, deploy, test and teardown scripts) |
-| `ui/` | The chat UI: FastAPI backend and React front end, with an admin pane (agent network, telemetry, case file, memory). `ui/Dockerfile` runs it as a container app |
+| `ui/` | The chat UI: FastAPI backend and React front end, with an admin pane (agent network, telemetry, case file, memory) and an "About this app" tab (architecture diagram, sample report). `ui/Dockerfile` runs it as a container app |
 | `tests/` | Unit tests (no Azure needed) and small tools for testing a live deployment |
 | `docs/` | `DEPLOYMENT.md` (the step-by-step deployment runbook), `V2.md` (the harness design and how v2 runs next to v1), `APIM.md` (the three API gateways), `architecture.md` (diagrams) |
 
@@ -119,6 +119,7 @@ then **review** (independent critique, with repair rounds) then **publish** (DOC
 - Output: a designed Word report (cover, bottom line, KPI tiles, heat-coloured tables, charts and bridges, action table, evidence register, the calculations it cites, the SQL behind each
   figure, the audit result) and the same document as HTML for the in-app viewer.
 - `python tests/make_sample_report.py` renders a sample from inline data with no agents, for a quick look at the format.
+- The "About this app" tab links to a real sample report. To refresh it from a report you published, run `python tests/sanitise_sample_report.py <report.html> <report.docx>`: it replaces the SQL appendix with a note, refuses to write if a table name, catalog or workspace identifier or a case id is left, and writes to `ui/frontend/public/assets/sample/` (the three page images next to it are copied by hand).
 
 ## Testing
 
