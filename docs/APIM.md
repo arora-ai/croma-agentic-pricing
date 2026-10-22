@@ -94,7 +94,7 @@ calls), and diagnostics log headers only, never a request or response body (`byt
 
 `policies/front-chat-turn.xml` on `POST /api/chat` adds a **stricter limit** (10 chat turns a minute per user by default; one call starts a model run that can take minutes) and, if `-ChatTurnsPerDay` is set, a **daily quota** per user (`quota-by-key`; once it is used up the caller gets `403 Quota Exceeded` with the time until it is replenished, tested with a quota of 3).
 
-`policies/front-static.xml` on `GET /` and `GET /assets/*` (the web app's own files) deliberately **skips authentication**: the page must load before anyone has signed in. It only rate limits by client address and sends no gateway key. Only these two paths are open; everything the chat API serves that is not listed as an operation (for example `/docs` and `/openapi.json`) is a 404 at the gateway.
+`policies/front-static.xml` on `GET /` and `GET /assets/*` (the web app's own files) deliberately **skips authentication**: the page must load before anyone has signed in. It only rate limits by client address and sends no gateway key. Only these two paths are open; everything the chat API serves that is not listed as an operation (for example `/docs` and `/openapi.json`) is a 404 at the gateway. Anything in `ui/frontend/public/assets/` is therefore reachable without signing in; today that is only the sample report on the About tab (synthetic data, SQL removed by `tests/sanitise_sample_report.py`). Do not put a real report there.
 
 ### Tool gateway: `tools-api`, base URL `<gateway>/tools`
 
