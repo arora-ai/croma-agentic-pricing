@@ -239,8 +239,8 @@ export const BAND: Panel = {
       detail: "Planned. A set of golden questions with known answers that runs after every change to a prompt, the data space or a model, plus certified Genie measures for the metrics that matter." }] },
     { h: 0, nodes: [{ id: "t_prot", title: "Data protection", lines: ["secrets in Key Vault", "private endpoints · Private Link", "Purview classification"], tone: "trustBox", planned: true,
       detail: "Planned for the Croma tenant: secrets in Key Vault, private endpoints (Standard v2 API Management adds network integration), and Purview for classification." }] },
-    { h: 0, nodes: [{ id: "t_ship", title: "Build and ship", lines: ["Bicep and PowerShell for every piece", "unit tests in CI, no Azure needed", "v1 and v2 side by side (name prefix)"], tone: "trustBox", v2: true,
-      detail: "Deployment scripts and Bicep for every Azure piece, unit tests that run in CI without Azure, and a name prefix that lets v2 run next to v1 with its own agents, memory and connections.", where: "infra/, tests/, docs/DEPLOYMENT.md" }] },
+    { h: 0, nodes: [{ id: "t_ship", title: "Build and ship", lines: ["Bicep, PowerShell and Python scripts", "unit tests in CI, no Azure needed", "v1 and v2 side by side (name prefix)"], tone: "trustBox", v2: true,
+      detail: "Deployment scripts for the hub, the agents, the gateways and the chat app (Bicep for the gateways, PowerShell for the hub and the chat app, Python for the agents), unit tests that run in CI without Azure, and a name prefix that lets v2 run next to v1 with its own agents, memory and connections. The Foundry account, project and model deployments are created by the runbook's own steps.", where: "infra/, tests/, docs/DEPLOYMENT.md" }] },
   ],
 };
 
