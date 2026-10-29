@@ -118,6 +118,7 @@
   .about-inner { padding: 20px 14px 70px; }
   .about-hero, .sample { padding: 20px 18px; }
   .about h1 { font-size: 27px; }
+  .about .ver { display: table; margin: 8px 0 0; white-space: nowrap; }
   .new-grid { grid-template-columns: 1fr; }
   .view-tabs button { padding: 0 10px; }
   .steps li { width: 100%; }
@@ -126,4 +127,86 @@
   .brand .name { display: none; }
   .topbar .conn { font-size: 0; margin-right: 0; }
   .topbar .conn i { width: 9px; height: 9px; }
+}
+
+.hero-actions .ghost { height: 36px; padding: 0 14px; font-size: 13.5px; }
+
+/* Printing (the Save as PDF button, or Ctrl+P): the About tab flows over A4 sheets instead of scrolling inside the app shell, the diagram's click-to-open details
+   are listed in a reference at the end, and what only makes sense on screen is left out. Scoped with :has() to the About tab, so printing the chat is unchanged.
+   Kept below the responsive rules above: an A4 page is about 700 px wide, which matches the tablet breakpoint. */
+.print-only { display: none; }
+
+@page { size: A4 portrait; margin: 12mm 12mm 15mm; }
+
+@media print {
+  html:has(.about), html:has(.about) body, html:has(.about) #root, .app:has(> .about) { height: auto; overflow: visible; background: #fff; }
+  .app:has(> .about) { display: block; }
+  .app:has(> .about) > .topbar, .about .hero-actions, .about .connected, .about .sample .row, .about .viewer, .about .arch-pop, .about .screen-only { display: none !important; }
+  .about section.print-only, .about h3.print-only { display: block; }
+  .about span.print-only { display: inline; }
+  .about .flow-title { margin: 0 0 12px; font-size: 14px; }
+  .about .flow-title span { margin-left: 8px; font-size: 11px; font-weight: 500; color: var(--muted); }
+
+  .about { overflow: visible; background: #fff; }
+  .about, .about * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .about-inner { display: block; max-width: none; padding: 0; }
+  .about-inner > * + * { margin-top: 20px; }
+  .about h1 { font-size: 28px; margin: 4px 0 10px; }
+  .about h2 { font-size: 18px; break-after: avoid; }
+  .about .sub { font-size: 12.5px; margin-bottom: 12px; max-width: none; }
+  .about-hero, .sample, .lane, .new-card, .next li, .flow li, .arch, .legend { break-inside: avoid; }
+
+  .about-hero { padding: 22px 24px 20px; border-radius: 12px; }
+  .lead { font-size: 14px; line-height: 1.6; max-width: none; }
+  .chips { margin-bottom: 0; }
+  .chips li { font-size: 11.5px; }
+
+  .sample { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 20px 24px; border-radius: 12px; }
+  .sample p { font-size: 12.5px; max-width: none; margin-bottom: 10px; }
+  .facts { margin-bottom: 0; }
+  .thumbs { justify-content: space-between; gap: 12px; overflow: visible; padding: 0; }
+  .thumbs .thumb, .thumbs .thumb:nth-child(2) { flex: none; width: calc((100% - 24px) / 3); transform: none; box-shadow: none; }
+
+  #about-arch { break-before: page; }
+  .legend { font-size: 11px; gap: 6px 16px; margin-bottom: 10px; }
+  .arch-scroll { overflow: visible; padding: 4px; border-radius: 12px; }
+  .arch-svg { min-width: 0; }
+  .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 22px; margin-top: 16px; }
+  .flow b { font-size: 12.5px; }
+  .flow span { font-size: 11.5px; }
+
+  .lanes { gap: 10px; }
+  .lane { padding: 12px 14px; border-radius: 12px; gap: 6px 14px; }
+  .lane-head b { font-size: 14.5px; }
+  .lane-head p { font-size: 11.5px; margin-top: 3px; }
+  .steps { gap: 12px 10px; }
+  .steps li { width: calc((100% - 30px) / 4); padding: 7px 8px 8px; }
+  .steps b { font-size: 11.5px; }
+  .steps span { font-size: 10px; }
+  .lane-foot { font-size: 11px; }
+
+  .new-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .new-card { padding: 12px 13px 14px; border-radius: 12px; }
+  .new-icon { width: 28px; height: 28px; }
+  .new-card b { font-size: 12.5px; margin: 8px 0 4px; }
+  .new-card p { font-size: 11px; line-height: 1.5; }
+  .next { grid-template-columns: 1fr; gap: 8px; }
+  .next li { font-size: 12px; padding: 8px 13px; }
+  .about-foot { font-size: 11px; padding-top: 14px; }
+  .about-foot code { font-size: 10px; padding: 1px 5px; }
+
+  /* the component reference */
+  .ref { break-before: page; }
+  .ref-group { margin-top: 14px; }
+  .ref-group h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 6px 10px; font-size: 13px; background: var(--surface-2); border-left: 4px solid var(--accent); border-radius: 4px; break-after: avoid; }
+  .ref-group > p { margin: 0 0 4px; font-size: 11px; line-height: 1.5; color: #3a3a46; }
+  .ref-group > .ref-includes { color: var(--muted); }
+  .ref-group > code { display: block; margin: 0 0 6px; }
+  .ref code { font-size: 9px; background: none; padding: 0; color: #5b6573; }
+  .ref td code { display: block; margin-top: 3px; }
+  .ref table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  .ref th, .ref td { text-align: left; vertical-align: top; padding: 5px 8px; border-top: 1px solid var(--border); font-size: 10.5px; line-height: 1.5; }
+  .ref th { width: 26%; font-weight: 650; }
+  .ref-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; font-weight: 500; }
+  .ref tr { break-inside: avoid; }
 }

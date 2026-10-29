@@ -49,7 +49,7 @@ The full target architecture (including later phases such as API gateways, Teams
 | `hub/studio/` | The report studio: ledger, calc, audit, renderers, `playbook.md`, and the deterministic analytics engine (`analytics.py`, `analyze.py`) |
 | `integrations/genie/` | How to connect your Genie space or data agent, an example custom backend, and `try_question.py` |
 | `infra/` | PowerShell deploy scripts and `config.example.ps1`. `infra/apim/` is the optional Azure API Management layer (Bicep, policies, deploy, test and teardown scripts) |
-| `ui/` | The chat UI: FastAPI backend and React front end, with an admin pane (agent network, telemetry, case file, memory) and an "About this app" tab (architecture diagram, sample report). `ui/Dockerfile` runs it as a container app |
+| `ui/` | The chat UI: FastAPI backend and React front end, with an admin pane (agent network, telemetry, case file, memory) and an "About this app" tab (architecture diagram, sample report; its Save as PDF button prints a shareable overview). `ui/Dockerfile` runs it as a container app |
 | `tests/` | Unit tests (no Azure needed) and small tools for testing a live deployment |
 | `docs/` | `DEPLOYMENT.md` (the step-by-step deployment runbook), `V2.md` (the harness design and how v2 runs next to v1), `APIM.md` (the three API gateways), `architecture.md` (diagrams) |
 

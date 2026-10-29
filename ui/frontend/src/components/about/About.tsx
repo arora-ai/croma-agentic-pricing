@@ -1,7 +1,8 @@
-import { Activity, ArrowRight, Calculator, Download, ExternalLink, FileText, GitBranch, MessageCircleQuestion, Network, Scale, ShieldCheck, Users, Workflow, X } from "lucide-react";
+import { Activity, ArrowRight, Calculator, Download, ExternalLink, FileDown, FileText, GitBranch, MessageCircleQuestion, Network, Scale, ShieldCheck, Users, Workflow, X } from "lucide-react";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import type { State } from "../../store";
 import { ArchitectureDiagram } from "./ArchitectureDiagram";
+import { ComponentReference } from "./ComponentReference";
 import "./about.css";
 
 // The sample report is a static file shipped with the app (made by tests/sanitise_sample_report.py), under /assets so that it is also reachable through the API gateway.
@@ -142,6 +143,7 @@ export function About({ health, onOpenChat }: { health: State["health"]; onOpenC
           )}
           <div className="hero-actions">
             <button className="primary" onClick={onOpenChat}>Start a chat<ArrowRight size={15} /></button>
+            <button className="ghost" onClick={() => window.print()} title="Opens the print dialog: choose Save as PDF, paper A4, and switch off Headers and footers"><FileDown size={15} />Save as PDF</button>
             <nav className="jump" aria-label="On this page">
               <button onClick={() => jump("about-sample")}>Sample report</button>
               <button onClick={() => jump("about-arch")}>Architecture</button>
@@ -168,14 +170,16 @@ export function About({ health, onOpenChat }: { health: State["health"]; onOpenC
             </div>
           </div>
           <div className="thumbs">
-            {THUMBS.map((t) => <button key={t.src} className="thumb" onClick={() => setViewer(true)} aria-label="Open the sample report"><img src={t.src} alt={t.alt} loading="lazy" /></button>)}
+            {THUMBS.map((t) => <button key={t.src} className="thumb" onClick={() => setViewer(true)} aria-label="Open the sample report"><img src={t.src} alt={t.alt} /></button>)}
           </div>
         </section>
 
         <section id="about-arch">
           <h2>How it is built</h2>
           <p className="sub">
-            One question travels down through three gateways to the data and back, with the plan check up front and the evidence checks on the way back. Click any box for details.
+            One question travels down through three gateways to the data and back, with the plan check up front and the evidence checks on the way back.{" "}
+            <span className="screen-only">Click any box for details.</span>
+            <span className="print-only">Every box is described in the component reference at the end.</span>
           </p>
           <ul className="legend" aria-label="How to read the diagram">
             <li><i className="sw solid" />built</li>
@@ -186,6 +190,7 @@ export function About({ health, onOpenChat }: { health: State["health"]; onOpenC
             <li><i className="num">1</i>numbers follow one question</li>
           </ul>
           <ArchitectureDiagram />
+          <h3 className="print-only flow-title">A question, step by step <span>the numbers match the arrows in the diagram</span></h3>
           <ol className="flow">
             {FLOW.map(([title, text], i) => <li key={title}><i className="num">{i + 1}</i><div><b>{title}</b><span>{text}</span></div></li>)}
           </ol>
@@ -223,6 +228,8 @@ export function About({ health, onOpenChat }: { health: State["health"]; onOpenC
           <h2>What is planned, and what is not built yet</h2>
           <ul className="next">{NEXT.map((n) => <li key={n}>{n}</li>)}</ul>
         </section>
+
+        <ComponentReference />
 
         <footer className="about-foot">
           Read more in the repository: <code>docs/V2.md</code> (the design), <code>docs/APIM.md</code> (the gateways), <code>docs/architecture.md</code> (diagrams) and <code>docs/DEPLOYMENT.md</code> (the runbook).
