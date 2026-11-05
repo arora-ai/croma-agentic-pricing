@@ -61,7 +61,7 @@ If your tenant has no model called `gpt-6-sol`, pick the strongest reasoning mod
 ## 1. Prepare the laptop
 
 ```powershell
-git clone https://github.com/arora-ai/croma-agentic-pricing.git      # a private repo: you need to be added as a collaborator first
+git clone https://github.com/arora-ai/croma-agentic-pricing.git
 cd croma-agentic-pricing
 
 python -m venv .venv
