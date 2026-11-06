@@ -6,7 +6,7 @@
 # lives only in APIM. APIM mode is used with -Apim, or whenever $Cfg.Apim.GatewayUrl is set in infra/config.ps1; -Direct forces direct mode.
 # The gateway URL is $Cfg.Apim.GatewayUrl or APIM_TOOLS_URL in .apim.env; the key is in the environment variable named by $Cfg.Apim.SubscriptionKeyEnv
 # (default APIM_TOOLS_KEY), or that entry in .apim.env (written by infra/apim/deploy_apim.ps1).
-# -NamePrefix creates the four connections under another name prefix (<prefix>-hub-genie ...), for example to try the gateway next to the live ones.
+# -NamePrefix creates the five connections under another name prefix (<prefix>-hub-genie ...), for example to try the gateway next to the live ones.
 param([switch]$Apim, [switch]$Direct, [string]$NamePrefix)
 $ErrorActionPreference = "Continue"
 . "$PSScriptRoot\config.ps1"
@@ -35,7 +35,7 @@ if ($useApim) {
     Write-Host "Mode: direct to the hub ($targetBase)"
 }
 $targetBase = $targetBase.TrimEnd("/")
-$endpoints = @{ "$prefix-hub-genie" = "/genie/mcp"; "$prefix-hub-agents" = "/agents/mcp"; "$prefix-hub-context" = "/context/mcp"; "$prefix-hub-studio" = "/studio/mcp" }
+$endpoints = @{ "$prefix-hub-genie" = "/genie/mcp"; "$prefix-hub-sharepoint" = "/sharepoint/mcp"; "$prefix-hub-agents" = "/agents/mcp"; "$prefix-hub-context" = "/context/mcp"; "$prefix-hub-studio" = "/studio/mcp" }
 foreach ($name in $endpoints.Keys) {
     $body = @{ properties = @{ category = "CustomKeys"; target = $targetBase + $endpoints[$name]; authType = "CustomKeys"; isSharedToAll = $true
                                credentials = @{ keys = @{ "x-api-key" = $secretValue } } } } | ConvertTo-Json -Depth 5

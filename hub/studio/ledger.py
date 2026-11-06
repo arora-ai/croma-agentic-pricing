@@ -24,7 +24,7 @@ def norm(name: str) -> str:
 @dataclass
 class Table:
     id: str
-    kind: str  # genie | derived
+    kind: str  # genie | sharepoint | document | derived
     label: str
     columns: list[str]
     rows: list[list]
@@ -34,6 +34,8 @@ class Table:
     truncated: bool = False
     lineage: str = ""
     created_at: float = field(default_factory=time.time)
+    source: str = "databricks"  # which connected source produced it: databricks | sharepoint (derived tables inherit nothing: see lineage)
+    origin: str = ""  # where it came from, in words: the file, its sheet and when it was last modified (SharePoint results)
 
     def col_index(self, name: str) -> int:
         target = norm(name)
@@ -46,7 +48,8 @@ class Table:
         return {"id": self.id, "kind": self.kind, "label": self.label or self.question[:90], "question": self.question[:220], "columns": self.columns,
                 "row_count": len(self.rows), "truncated": self.truncated,
                 "preview": [[round(v, 4) if isinstance(v, float) else v for v in r] for r in self.rows[:preview_rows]],
-                **({"lineage": self.lineage[:200]} if self.lineage else {})}
+                **({"lineage": self.lineage[:200]} if self.lineage else {}),
+                **({"source": self.source, "origin": self.origin} if self.kind in ("sharepoint", "document") else {})}
 
 
 @dataclass
@@ -99,12 +102,104 @@ def register_genie(case_id: str, payload: dict) -> str | None:
         return rid
 
 
+def register_file(case_id: str, payload: dict) -> str | None:
+    """Store what was read from a SharePoint file and return its R-id (the same id space as Databricks results). payload["kind"] is 'sharepoint' for a table
+    (columns and rows) or 'document' for text (columns section and text, one row per passage). Errors and empty results are not stored."""
+    if payload.get("error") or not payload.get("columns") or not payload.get("rows"):
+        return None
+    with _lock:
+        c = case(case_id or "adhoc")
+        rid = c.next_id("R")
+        c.tables[rid] = Table(id=rid, kind=payload.get("kind", "sharepoint"), label=payload.get("label", ""), columns=list(payload["columns"]), rows=[list(r) for r in payload["rows"]],
+                              question=payload.get("question", ""), description=payload.get("description", ""), truncated=bool(payload.get("truncated_at_max_rows")),
+                              source="sharepoint", origin=payload.get("origin", ""))
+        return rid
+
+
 def get_table(case_id: str, table_id: str) -> Table:
     c = case(case_id)
     tid = table_id.strip().upper()
     if tid not in c.tables:
         raise KeyError(f"Unknown result '{table_id}' on case {case_id}. Known: {', '.join(c.tables) or 'none yet'}")
     return c.tables[tid]
+
+
+def _key(value: Any) -> str:
+    """A join key: text compared without case, spacing or punctuation differences, a whole number written as 5 or 5.0 the same way, and a date the same whether or
+    not it carries a time (2026-09-07 and 2026-09-07 00:00:00)."""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    text = str(value).strip()
+    m = re.match(r"(\d{4}-\d{2}-\d{2})(?:[T ].*)?$", text)
+    return m.group(1) if m else norm(text)
+
+
+def _find_column(table: Table, name: str) -> int:
+    """The column a join means: an exact match ignoring case and punctuation, else the only column that starts or ends with the name (or the name with it)."""
+    n = norm(name)
+    by_norm = {norm(c): i for i, c in enumerate(table.columns)}
+    if n in by_norm:
+        return by_norm[n]
+    near = [i for k, i in by_norm.items() if n and k and (k.startswith(n) or n.startswith(k) or k.endswith(n) or n.endswith(k))]
+    if len(near) == 1:
+        return near[0]
+    raise KeyError(f"{table.id} has no column '{name}'. Columns: {', '.join(table.columns)}")
+
+
+def join_tables(case_id: str, left: str, right: str, on: str, right_on: str = "", take: list[str] | None = None, how: str = "left", label: str = "") -> dict:
+    """Joins two results (typically one from each source) on a shared key and stores the outcome as a derived table (T id). The left result keeps its rows;
+    'take' names the right result's columns to add (default: all except the key). The right result must have one row per key, because a join that silently
+    picked one of several rows would put figures in the evidence that nobody asked for. Returns the table id, its columns and rows, and what did not match."""
+    if how not in ("left", "inner"):
+        raise ValueError("how must be 'left' (keep every row of the left result) or 'inner' (keep only the rows with a match)")
+    with _lock:
+        c = case(case_id)
+        lt, rt = get_table(case_id, left), get_table(case_id, right)
+        li, ri = _find_column(lt, on), _find_column(rt, right_on or on)
+        wanted = [take] if isinstance(take, str) else list(take or [])
+        take_idx = [_find_column(rt, t) for t in wanted] if wanted else [i for i in range(len(rt.columns)) if i != ri]
+        index: dict[str, list] = {}
+        for row in rt.rows:
+            index.setdefault(_key(row[ri]), []).append(row)
+        repeated = sorted(k for k, v in index.items() if len(v) > 1)
+        if repeated:
+            raise ValueError(f"{rt.id} has several rows for {len(repeated)} value(s) of '{rt.columns[ri]}' (for example {repeated[0]}), so it cannot be joined to {lt.id} on it. "
+                             f"Ask for one row per {rt.columns[ri]}.")
+        taken_names = {norm(x) for x in lt.columns}
+        names = []
+        for i in take_idx:
+            name = rt.columns[i]
+            while norm(name) in taken_names:
+                name += "_2"
+            taken_names.add(norm(name))
+            names.append(name)
+        rows, unmatched_left, used = [], [], set()
+        for row in lt.rows:
+            k = _key(row[li])
+            hit = index.get(k)
+            if hit is None:
+                unmatched_left.append(str(row[li]))
+                if how == "inner":
+                    continue
+                rows.append([*row, *([None] * len(take_idx))])
+            else:
+                used.add(k)
+                rows.append([*row, *[hit[0][i] for i in take_idx]])
+        unmatched_right = [str(r[ri]) for k, v in index.items() if k not in used for r in v]
+        if not used:
+            raise ValueError(f"no row of {lt.id} matches a row of {rt.id} on '{lt.columns[li]}' = '{rt.columns[ri]}'. {lt.id} has e.g. {lt.rows[0][li]!r}; {rt.id} has e.g. {rt.rows[0][ri]!r}")
+        tid = c.next_id("T")
+        text = label.strip() or f"{lt.id} with {rt.id} on {lt.columns[li]}"
+        notes = []
+        if unmatched_left:
+            notes.append(f"{len(unmatched_left)} of {len(lt.rows)} row(s) of {lt.id} had no match in {rt.id} ({', '.join(unmatched_left[:4])}{'...' if len(unmatched_left) > 4 else ''}).")
+        if unmatched_right:
+            notes.append(f"{len(unmatched_right)} row(s) of {rt.id} matched nothing in {lt.id} ({', '.join(unmatched_right[:4])}{'...' if len(unmatched_right) > 4 else ''}).")
+        c.tables[tid] = Table(id=tid, kind="derived", label=text, columns=[*lt.columns, *names], rows=rows, question=text,
+                              lineage=f"join of {lt.id} ({lt.source}) and {rt.id} ({rt.source}) on {lt.columns[li]}; took {', '.join(rt.columns[i] for i in take_idx)}",
+                              truncated=lt.truncated or rt.truncated)
+        return {"table": tid, "columns": c.tables[tid].columns, "rows": rows, "notes": notes, "matched": len(used),
+                "unmatched_left": len(unmatched_left), "unmatched_right": len(unmatched_right)}
 
 
 # ---------------------------------------------------------------- cell references and safe arithmetic
@@ -354,11 +449,29 @@ def numeric_summary(table: Table) -> dict:
     return sums
 
 
+NUMBER_IN_TEXT = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?")
+
+
+def text_numbers(text: str) -> list[float]:
+    """The numbers written in a passage of text (a discount of 12%, a target of 1,250 crore), so a figure quoted from a document can be traced to it."""
+    out = []
+    for m in NUMBER_IN_TEXT.finditer(text):
+        try:
+            out.append(float(m.group(0).replace(",", "")))
+        except ValueError:
+            pass
+    return out
+
+
 def candidate_numbers(case_id: str) -> list[float]:
-    """Every number a report may legitimately quote: result cells, column totals, and derived values."""
+    """Every number a report may legitimately quote: result cells, column totals, numbers written in document passages, and derived values."""
     c = case(case_id)
     out: list[float] = []
     for t in c.tables.values():
+        if t.kind == "document":
+            for r in t.rows:
+                out.extend(n for cell in r if isinstance(cell, str) for n in text_numbers(cell))
+            continue
         for i in range(len(t.columns)):
             col = []
             for r in t.rows:

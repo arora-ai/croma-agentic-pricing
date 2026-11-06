@@ -2,7 +2,7 @@
 language-model workers do the reasoning inside them.
 
     scope      the scoper turns the brief into a plan: data questions, analytics steps and (research) hypotheses with rules      [worker]
-    evidence   ask the Data agent (parallel), map the columns, run the analytics                                                 [code]
+    evidence   ask each source's agent (Databricks: the Data agent; SharePoint: the SharePoint agent) in parallel, join, map the columns, run the analytics  [code]
     evaluate   (research) apply each hypothesis's rule to its computed figures                                                   [code]
     conclude   the analyst reads the evidence and writes the result, or asks for one follow-up round                             [worker]
     verify     every figure in the result is traced to the ledger; one repair by the worker, then untraceable parts are removed [code + worker]
@@ -17,6 +17,7 @@ from typing import Callable
 
 from pydantic import BaseModel
 
+import settings
 from harness import core
 from harness.runtime import Ctx, HarnessError
 from harness.schemas import Critique, FollowUp, Plan
@@ -41,7 +42,7 @@ class Spec:
 
 def plan_brief(plan: Plan) -> dict:
     return {"restated": plan.restated, "kpi": plan.kpi, "unit": plan.unit, "current": plan.current_label, "base": plan.base_label, "basis": plan.basis,
-            "materiality": plan.materiality.model_dump(), "assumptions": plan.assumptions}
+            "materiality": plan.materiality.model_dump(), "assumptions": plan.assumptions, "sources": sorted({q.source for q in plan.questions})}
 
 
 async def run(ctx: Ctx, spec: Spec) -> dict:
@@ -51,8 +52,11 @@ async def run(ctx: Ctx, spec: Spec) -> dict:
         def check(plan: Plan) -> None:
             if len(plan.questions) > spec.max_questions:
                 raise ValueError(f"ask at most {spec.max_questions} data questions in the first round (the plan has {len(plan.questions)}): merge them or drop the least useful")
+            off = [f"{q.id} uses '{q.source}'" for q in plan.questions if q.source not in settings.SOURCES]
+            if off:
+                raise ValueError(f"{'; '.join(off)}, which is not connected. Connected sources: {', '.join(settings.SOURCES)}. Plan only with those")
 
-        payload: dict = {"brief": ctx.run.brief, "limits": {"max_questions": spec.max_questions}}
+        payload: dict = {"brief": ctx.run.brief, "limits": {"max_questions": spec.max_questions, "sources": list(settings.SOURCES)}}
         if case.get("findings"):
             payload["case"] = {"request": case.get("request", ""), "earlier_findings": [f"{f['title']}: {f['finding'][:160]}" for f in case["findings"][-6:]]}
         return (await ctx.worker("scoper", spec.plan_task, payload, spec.plan_cls, check=check)).model_dump()

@@ -41,13 +41,13 @@ WORKER_MODELS = {k: os.getenv(f"WORKER_MODEL_{k.upper()}", os.getenv("WORKER_MOD
 WORKER_EFFORT = {k: os.getenv(f"WORKER_EFFORT_{k.upper()}", "medium" if k == "scoper" else "high") for k in ("scoper", "analyst", "critic")}
 
 NAME_PREFIX = os.getenv("NAME_PREFIX", "croma")
-CONNECTIONS = {kind: f"{NAME_PREFIX}-hub-{kind}" for kind in ("genie", "agents", "context", "studio")}
+CONNECTIONS = {kind: f"{NAME_PREFIX}-hub-{kind}" for kind in ("genie", "sharepoint", "agents", "context", "studio")}
 
 # Same names as hub/settings.py (the hub is a separate container and cannot import from here; tests/test_names.py checks they agree).
 ROLE_SUFFIX = {
     "cx": "cx", "lookup": "lookup", "research": "research", "analysis": "analysis", "reporting": "reporting",
     "planner": "report-planner", "insight": "report-insight", "strategist": "report-strategist", "writer": "report-writer", "reviewer": "report-reviewer",
-    "data": "data", "scoper": "scoper", "analyst": "analyst", "critic": "critic",
+    "data": "data", "scoper": "scoper", "analyst": "analyst", "critic": "critic", "sharepoint": "sharepoint",
 }
 NAMES = {role: f"{NAME_PREFIX}-{suffix}" for role, suffix in ROLE_SUFFIX.items()}
 
@@ -71,6 +71,7 @@ def analytics_catalog() -> str:
 
 def build(hub_url: str, allow_example: bool = False) -> dict[str, PromptAgentDefinition]:
     genie = lambda: _mcp("genie", hub_url, "/genie/mcp", ["query_space_croma_pricing"])
+    sharepoint = lambda: _mcp("sharepoint", hub_url, "/sharepoint/mcp", ["search_sharepoint", "read_sharepoint_file"])
     agents = lambda tools: _mcp("agents", hub_url, "/agents/mcp", tools)
     context = lambda tools: _mcp("context", hub_url, "/context/mcp", tools)
     studio = lambda tools: _mcp("studio", hub_url, "/studio/mcp", tools)
@@ -92,6 +93,7 @@ def build(hub_url: str, allow_example: bool = False) -> dict[str, PromptAgentDef
         "writer": [studio([*EVIDENCE, "get_section_pack", "save_frame", "save_section", "get_document", "audit_report"])],
         "reviewer": [studio(["get_review_pack", "get_report_playbook", "list_evidence", "get_result", "calc", "get_workspace", "get_document", "audit_report", "save_review"])],
         "data": [genie()],
+        "sharepoint": [sharepoint()],
         "scoper": [], "analyst": [], "critic": [],
     }
     out = {}
@@ -120,7 +122,8 @@ DESCRIPTIONS = {
     "strategist": "Report team: turns insights into sized, owned, prescriptive actions.",
     "writer": "Report team: writes the report frame and sections to the document spec, with tables and charts drawn from the evidence ledger.",
     "reviewer": "Report team: independent critique of the finished report for accuracy, insight, consistency and actionability.",
-    "data": "The only agent that touches data: queries the Genie data space and returns figures with their source.",
+    "data": "The only agent that touches the data space: queries the Genie data space and returns figures with their source.",
+    "sharepoint": "The only agent that touches SharePoint: finds and reads files in the connected document library and returns tables or passages with their source.",
     "scoper": "Harness worker (no tools): turns a business brief into a typed plan of data questions, exact analytics steps and, for research, testable hypotheses.",
     "analyst": "Harness worker (no tools): reads the computed evidence and writes the typed findings or research conclusion, quoting only figures from the evidence.",
     "critic": "Harness worker (no tools): independent review of an analysis or research result; returns a verdict, precise issues and what was not checked.",

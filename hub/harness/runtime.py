@@ -120,6 +120,7 @@ class Deps:
     worker: Callable[..., Awaitable[Any]]  # call_worker
     save_finding: Callable[[str, str, str, str], None]  # (case_id, agent, title, finding)
     get_case: Callable[[str], dict | None]  # the case as saved: confirmed request and earlier findings
+    ask_source: Callable[[str, str, str], Awaitable[str]] | None = None  # (source, question, case_id) -> that source's agent's answer, for sources other than Databricks
 
 
 class HarnessError(RuntimeError):
@@ -140,6 +141,14 @@ class Ctx:
 
     async def ask_data(self, question: str) -> str:
         return await self.deps.ask_data(question, self.run.case_id)
+
+    async def ask_source(self, source: str, question: str) -> str:
+        """Asks the agent of a connected source: the Data agent for Databricks, the SharePoint agent for SharePoint. A failure comes back as text starting with ERROR."""
+        if source in ("", "databricks"):
+            return await self.ask_data(question)
+        if self.deps.ask_source is None:
+            return f"ERROR: the {source} source is not connected to this hub."
+        return await self.deps.ask_source(source, question, self.run.case_id)
 
     async def worker(self, role: str, task: str, payload: dict, schema: type, **kw) -> Any:
         return await self.deps.worker(role, task, payload, schema, case_id=self.run.case_id, parent=self.run.harness, **kw)

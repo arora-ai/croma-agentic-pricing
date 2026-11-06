@@ -16,7 +16,7 @@ def render(case_id: str, plan: Plan, data: dict, results: list[dict], gathered: 
     f = AnalysisFindings.model_validate(data)
     lines = [f"**{f.headline}**", ""]
     cited = {e.strip().upper() for d in f.drivers for e in d.evidence}
-    ok = [r for r in results if r.get("ok") and r["op"] not in ("reconcile", "materiality")]
+    ok = [r for r in results if r.get("ok") and r["op"] not in ("reconcile", "materiality", "join")]
     shown = [r for r in ok if r["table"] in cited or any(o["id"] in cited for o in r["outputs"].values())][:2] or ok[:1]
     for r in shown:
         lines += [f"**{core.table_title(r, plan)}**", core.step_table(case_id, r, plan), ""]

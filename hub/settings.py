@@ -28,6 +28,23 @@ APIM_SUBSCRIPTION_KEY = os.getenv("APIM_SUBSCRIPTION_KEY", "")  # only for DATAB
 # Custom backend: "package.module:function", an async function ask(question, conversation_id) -> dict (see integrations/genie/README.md).
 CUSTOM_BACKEND = os.getenv("CUSTOM_BACKEND", "")
 
+# SharePoint, the second data source (see docs/SHAREPOINT.md). Off by default: the system then behaves exactly as before, and the Scoper is not told about SharePoint.
+#   graph   reads a document library of a SharePoint site through Microsoft Graph (the hub's managed identity needs read access to that site)
+#   folder  reads a local folder as if it were a document library: for tests and demos on synthetic files
+SHAREPOINT_BACKEND = os.getenv("SHAREPOINT_BACKEND", "off")  # off | folder | graph
+SHAREPOINT_FOLDER = os.getenv("SHAREPOINT_FOLDER", "")  # folder backend: the directory to read (default: the sample library that ships with the hub)
+SHAREPOINT_SITE_URL = os.getenv("SHAREPOINT_SITE_URL", "")  # graph backend: https://<tenant>.sharepoint.com/sites/<site>
+SHAREPOINT_LIBRARY = os.getenv("SHAREPOINT_LIBRARY", "")  # graph backend: the document library to read (default: the site's default library)
+SHAREPOINT_AUTH = os.getenv("SHAREPOINT_AUTH", "managed_identity")  # managed_identity (also an Entra service principal via env vars, or a developer's az login) | token
+SHAREPOINT_TOKEN = os.getenv("SHAREPOINT_TOKEN", "")  # only for SHAREPOINT_AUTH=token: a Microsoft Graph access token, for a quick test
+SHAREPOINT_TOOL_DESCRIPTION = os.getenv("SHAREPOINT_TOOL_DESCRIPTION", "")  # shown to the SharePoint agent: what the connected library holds
+SHAREPOINT_MAX_ROWS = int(os.getenv("SHAREPOINT_MAX_ROWS", "200"))  # rows of a sheet returned by one read
+SHAREPOINT_MAX_PASSAGES = int(os.getenv("SHAREPOINT_MAX_PASSAGES", "12"))  # passages of a document returned by one read
+SHAREPOINT_MAX_FILE_MB = int(os.getenv("SHAREPOINT_MAX_FILE_MB", "25"))
+SHAREPOINT_TIMEOUT_S = float(os.getenv("SHAREPOINT_TIMEOUT_S", "60"))  # Foundry cuts a tool call off at 100 seconds
+SHAREPOINT_MAX_CALLS_PER_CASE = int(os.getenv("SHAREPOINT_MAX_CALLS_PER_CASE", "120"))
+SOURCES = ("databricks", "sharepoint") if SHAREPOINT_BACKEND != "off" else ("databricks",)  # the data sources a plan may use
+
 # Foundry agent names: <NAME_PREFIX>-<suffix>. A different prefix gives a second, independent set of agents in the same Foundry project, so two versions
 # of the system can run side by side. agents/definitions.py builds the same names (tests/test_names.py keeps the two in step).
 # The report team sits behind the Reporting agent (the editor); scoper, analyst and critic are the workers of the Analysis and Research harnesses.
@@ -35,7 +52,7 @@ NAME_PREFIX = os.getenv("NAME_PREFIX", "croma")
 ROLE_SUFFIX = {
     "cx": "cx", "lookup": "lookup", "research": "research", "analysis": "analysis", "reporting": "reporting",
     "planner": "report-planner", "insight": "report-insight", "strategist": "report-strategist", "writer": "report-writer", "reviewer": "report-reviewer",
-    "data": "data", "scoper": "scoper", "analyst": "analyst", "critic": "critic",
+    "data": "data", "scoper": "scoper", "analyst": "analyst", "critic": "critic", "sharepoint": "sharepoint",
 }
 AGENT_NAMES = {role: f"{NAME_PREFIX}-{suffix}" for role, suffix in ROLE_SUFFIX.items()}
 REPORT_TEAM = ("planner", "insight", "strategist", "writer", "reviewer")

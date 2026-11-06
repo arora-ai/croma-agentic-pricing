@@ -1,8 +1,9 @@
-"""Tools hub: one container exposing four MCP servers (data tool, agent bridge, case context, report studio) behind an API-key check.
-    /genie/mcp     the data tool: hands questions to the configured backend (Databricks Genie, your own function, or a stub)
-    /agents/mcp    agent-to-agent calls
-    /context/mcp   shared case context
-    /studio/mcp    the report studio: evidence ledger, calculations, audit, renderer
+"""Tools hub: one container exposing five MCP servers (data tool, SharePoint tools, agent bridge, case context, report studio) behind an API-key check.
+    /genie/mcp       the data tool: hands questions to the configured backend (Databricks Genie, your own function, or a stub)
+    /sharepoint/mcp  the SharePoint tools: search a document library and read a file as a table or as passages of text (off unless SHAREPOINT_BACKEND is set)
+    /agents/mcp      agent-to-agent calls
+    /context/mcp     shared case context
+    /studio/mcp      the report studio: evidence ledger, calculations, audit, renderer
     /trace         recent agent-to-agent calls (for test runs);  /case/<id>  the case as saved;  /healthz  open
     /runs/<case>   the harness runs (Analysis, Research) on a case, stage by stage
     /report/<case>/<n>.docx|.html  published reports;  /state/<case>  export a case (with its runs), POST /state to restore it
@@ -25,12 +26,13 @@ import agent_bridge
 import case_context
 import events as live_events
 import genie_gateway
+import sharepoint_gateway
 from harness import runtime as harness_runtime
-from settings import API_KEY, GENIE_BACKEND, HARNESS_MODE
+from settings import API_KEY, GENIE_BACKEND, HARNESS_MODE, SHAREPOINT_BACKEND
 from studio import server as studio_server
 
 logging.basicConfig(level=logging.WARNING)
-SERVERS = [genie_gateway.mcp, agent_bridge.mcp, case_context.mcp, studio_server.mcp]
+SERVERS = [genie_gateway.mcp, sharepoint_gateway.mcp, agent_bridge.mcp, case_context.mcp, studio_server.mcp]
 
 
 @contextlib.asynccontextmanager
@@ -42,7 +44,7 @@ async def lifespan(_app):
 
 
 async def healthz(_request: Request):
-    return JSONResponse({"status": "ok", "genie_tool": genie_gateway.TOOL_NAME, "genie_backend": GENIE_BACKEND, "harness_mode": HARNESS_MODE})
+    return JSONResponse({"status": "ok", "genie_tool": genie_gateway.TOOL_NAME, "genie_backend": GENIE_BACKEND, "sharepoint_backend": SHAREPOINT_BACKEND, "harness_mode": HARNESS_MODE})
 
 
 async def trace(request: Request):
@@ -111,6 +113,7 @@ app = ApiKey(Starlette(
             Route("/state/{case_id}", state_export),
             Route("/state", state_import, methods=["POST"]),
             Mount("/genie", app=genie_gateway.mcp.streamable_http_app()),
+            Mount("/sharepoint", app=sharepoint_gateway.mcp.streamable_http_app()),
             Mount("/agents", app=agent_bridge.mcp.streamable_http_app()),
             Mount("/context", app=case_context.mcp.streamable_http_app()),
             Mount("/studio", app=studio_server.mcp.streamable_http_app())],

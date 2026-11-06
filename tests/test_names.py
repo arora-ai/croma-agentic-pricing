@@ -35,7 +35,7 @@ def test_default_prefix_keeps_the_v1_names(monkeypatch):
     with prefix(monkeypatch, None) as (settings, memory_store, definitions):
         assert settings.AGENT_NAMES["cx"] == "croma-cx" and settings.AGENT_NAMES["planner"] == "croma-report-planner"
         assert definitions.NAMES == settings.AGENT_NAMES
-        assert definitions.CONNECTIONS == {"genie": "croma-hub-genie", "agents": "croma-hub-agents", "context": "croma-hub-context", "studio": "croma-hub-studio"}
+        assert definitions.CONNECTIONS == {"genie": "croma-hub-genie", "sharepoint": "croma-hub-sharepoint", "agents": "croma-hub-agents", "context": "croma-hub-context", "studio": "croma-hub-studio"}
         assert (memory_store.MEMORY_STORE, memory_store.MEMORY_SCOPE) == ("croma-user-memory", "croma-user-1")
 
 
@@ -43,6 +43,6 @@ def test_prefix_renames_everything_consistently(monkeypatch):
     with prefix(monkeypatch, "croma2") as (settings, memory_store, definitions):
         assert all(name.startswith("croma2-") for name in settings.AGENT_NAMES.values())
         assert definitions.NAMES == settings.AGENT_NAMES
-        assert set(definitions.CONNECTIONS.values()) == {"croma2-hub-genie", "croma2-hub-agents", "croma2-hub-context", "croma2-hub-studio"}
+        assert set(definitions.CONNECTIONS.values()) == {"croma2-hub-genie", "croma2-hub-sharepoint", "croma2-hub-agents", "croma2-hub-context", "croma2-hub-studio"}
         assert memory_store.MEMORY_STORE == "croma2-user-memory"
         assert len(set(settings.AGENT_NAMES.values())) == len(settings.AGENT_NAMES)

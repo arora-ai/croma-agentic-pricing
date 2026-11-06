@@ -30,8 +30,20 @@ $Cfg.Genie = @{
     ToolDescription = ""        # one or two sentences telling the Data agent what this data space covers (optional but worth writing)
 }
 
+# Optional: SharePoint as a second data source for the Analysis and Research journeys (docs/SHAREPOINT.md). Leave this out to run without it.
+#   Backend: "graph"   reads one document library of a SharePoint site through Microsoft Graph (set SiteUrl; the hub's managed identity needs read access to that site)
+#            "folder"  reads a folder bundled with the hub as if it were a library: for trying the connector on synthetic files
+#            "off"     (the default) SharePoint is not offered to the agents
+# The agents are told what the library holds by the "sharepoint" block of config/data_profile.json (set "enabled" there as well), and deploy_agents.py must be re-run.
+# $Cfg.SharePoint = @{
+#     Backend         = "graph"
+#     SiteUrl         = "https://<tenant>.sharepoint.com/sites/<site>"
+#     Library         = ""        # the document library to read; empty means the site's default library
+#     ToolDescription = ""        # one or two sentences telling the SharePoint agent what the library holds (optional)
+# }
+
 # Optional: Azure API Management in front of the system (infra/apim, docs/APIM.md). Leave this out to run without it.
-# When GatewayUrl is set, infra/create_hub_connection.ps1 points the four Foundry project connections at the tool gateway and stores the APIM subscription key
+# When GatewayUrl is set, infra/create_hub_connection.ps1 points the five Foundry project connections at the tool gateway and stores the APIM subscription key
 # in them instead of the hub key (the hub key then lives only in APIM). Without it the connections point straight at the hub, as before.
 # $Cfg.Apim = @{
 #     GatewayUrl         = "https://<apim name>.azure-api.net/tools"   # APIM_TOOLS_URL in .apim.env, written by infra/apim/deploy_apim.ps1

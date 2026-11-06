@@ -211,7 +211,7 @@ def test_every_documented_output_is_really_produced():
         "reconcile": (None, {"a": 1.0, "b": 1.0}),
         "materiality": (None, {"change": 1.0, "base": 10.0}),
     }
-    assert set(samples) == set(an.OPS)
+    assert set(samples) == set(an.OPS) - {"join"}  # join works on two ledger results, see tests/test_sources.py
     for op, (data, params) in samples.items():
         result = an.run(op, data, params)
         assert set(an.OPS[op].outputs) <= set(result.outputs), (op, set(an.OPS[op].outputs) - set(result.outputs))

@@ -7,6 +7,7 @@ import copy
 import re
 from typing import Any
 
+import settings
 from harness import units
 from harness.runtime import Ctx, HarnessError
 from harness.schemas import FixedSteps, FollowUp, Materiality, Plan, Question, Step
@@ -17,17 +18,20 @@ RESULT_ID = re.compile(r"\bR(\d+)\b")
 REF = re.compile(r"^(?P<q>[A-Za-z][A-Za-z0-9_-]*)(?P<rest>:.+)$")
 STEP_REF = re.compile(r"^(?P<s>[A-Za-z][A-Za-z0-9_-]*)\.(?P<out>[a-z][a-z0-9_]*)$")
 MAX_PACK_ROWS = 8
+MAX_PACK_PASSAGES = 8
+PASSAGE_SHOWN = 700
+SOURCE_RESULTS = ("genie", "sharepoint", "document")  # the ledger kinds a question's answer can be: Databricks rows, SharePoint rows, SharePoint text
 
 
 # ---------------------------------------------------------------- gather
 
 def pick_result(case_id: str, answer: str, wanted: list[str], taken: set[str]) -> str | None:
-    """The ledger result a Data agent answer is about: the result id it cites, preferring one that has the columns that were asked for."""
+    """The ledger result a source agent's answer is about: the result id it cites, preferring one that has the columns that were asked for."""
     c = ledger.case(case_id)
     cited: list[str] = []
     for m in RESULT_ID.finditer(answer):
         rid = f"R{m.group(1)}"
-        if rid not in cited and rid in c.tables and c.tables[rid].kind == "genie":
+        if rid not in cited and rid in c.tables and c.tables[rid].kind in SOURCE_RESULTS:
             cited.append(rid)
     if not cited:
         return None
@@ -37,22 +41,38 @@ def pick_result(case_id: str, answer: str, wanted: list[str], taken: set[str]) -
     return ([r for r in pool if r not in taken] or pool)[-1]
 
 
+def question_text(q: Question) -> str:
+    """What the source's agent is asked. Databricks is asked to use the plan's column names; a file keeps its own headings (the harness maps them afterwards), so a
+    SharePoint question is told which columns the plan will read and to return the file's table as it is."""
+    if q.source == "sharepoint":
+        text = q.ask.rstrip()
+        if q.form == "text":
+            return text + " Return the relevant passages of the document as they are."
+        return text + (f" The plan will read these columns: {', '.join(q.columns)}. Return the file's table with its own headings." if q.columns else "")
+    return q.ask if not q.columns else f"{q.ask.rstrip()} Use these column names: {', '.join(q.columns)}."
+
+
 async def gather(ctx: Ctx, questions: list[Question], stage: str) -> dict[str, dict]:
-    """Asks every question through the Data agent (they run in parallel, capped by the bridge) and maps each answer to its ledger result."""
+    """Asks every question of the source it names (Databricks through the Data agent, SharePoint through the SharePoint agent), in parallel, and maps each answer to its
+    ledger result."""
     results: dict[str, dict] = dict(ctx.run.data.get(stage) or {})
     todo = [q for q in questions if not (results.get(q.id) or {}).get("result_id")]
     taken = {r["result_id"] for r in results.values() if r.get("result_id")}
 
     async def one(q: Question) -> None:
-        ask = q.ask if not q.columns else f"{q.ask.rstrip()} Use these column names: {', '.join(q.columns)}."
-        answer = await ctx.ask_data(ask)
+        ask = question_text(q)
+        if q.source not in settings.SOURCES:
+            results[q.id] = {"result_id": None, "ask": ask, "source": q.source, "form": q.form, "answer": f"ERROR: the {q.source} source is not connected to this hub."}
+            ctx.checkpoint(stage, results)
+            return
+        answer = await ctx.ask_source(q.source, ask)
         rid = None if answer.startswith("ERROR") else pick_result(ctx.case_id, answer, q.columns, taken)
         if rid is None and not answer.startswith("ERROR"):
-            answer = await ctx.ask_data(ask + " Put the result id (for example R7) in your reply.")
+            answer = await ctx.ask_source(q.source, ask + " Put the result id (for example R7) in your reply.")
             rid = None if answer.startswith("ERROR") else pick_result(ctx.case_id, answer, q.columns, taken)
         if rid:
             taken.add(rid)
-        results[q.id] = {"result_id": rid, "ask": ask, "answer": answer[:1800], **same_unit(ctx.case_id, rid, answer)}
+        results[q.id] = {"result_id": rid, "ask": ask, "source": q.source, "form": q.form, "answer": answer[:1800], **same_unit(ctx.case_id, rid, answer)}
         ctx.checkpoint(stage, results)
 
     await asyncio.gather(*(one(q) for q in todo))
@@ -128,8 +148,36 @@ def result_shapes(case_id: str, gathered: dict[str, dict], rows: int = 2) -> dic
     return shapes
 
 
+def run_joins(case_id: str, steps: list[Step], gathered: dict[str, dict]) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Runs the join steps in plan order, each on the question results (and earlier joins) it names. Returns (what each join produced or why it failed, the gathered
+    results with every successful join added under its step id, so later steps can read it like a question)."""
+    out: dict[str, dict] = {}
+    merged = dict(gathered)
+    for step in steps:
+        if step.op != "join":
+            continue
+        try:
+            params = resolve_refs(step.params, merged)
+            other = step.params.get("with")
+            if other and other in merged and not analysed_id(merged[other]):
+                raise analytics.AnalyticsError(f"question {other} returned no data")
+            if other and other in merged:
+                params["with"] = analysed_id(merged[other])
+            source = analysed_id(merged.get(step.source) or {})
+            if not source:
+                raise analytics.AnalyticsError(f"question {step.source} returned no data")
+            run = analyze.run_op(case_id, "join", source, params, step.label, preview_rows=MAX_PACK_ROWS + 4)
+            out[step.id] = {"step": step.id, "ok": True, "unit": step.unit, **run}
+            merged[step.id] = {"result_id": run["table"]}
+        except Exception as exc:
+            reason = exc.args[0] if isinstance(exc, KeyError) and exc.args else exc
+            out[step.id] = {"step": step.id, "ok": False, "label": step.label, "op": step.op, "error": f"{type(exc).__name__}: {reason}"}
+    return out, merged
+
+
 async def fix_columns(ctx: Ctx, steps: list[Step], gathered: dict[str, dict]) -> dict:
-    """Maps step columns onto what came back; when a column is really missing, the scoper gets one chance to re-point the step."""
+    """Joins the results that the plan joins, maps step columns onto what came back, and when a column is really missing gives the scoper one chance to re-point the step."""
+    joined, gathered = run_joins(ctx.case_id, steps, gathered)
     mapped, problems, no_data = remap_steps(ctx.case_id, steps, gathered)
     if problems:
         names = {re.match(r"step (\S+):", p).group(1) for p in problems if re.match(r"step (\S+):", p)}
@@ -140,25 +188,38 @@ async def fix_columns(ctx: Ctx, steps: list[Step], gathered: dict[str, dict]) ->
             mapped, problems, no_data = remap_steps(ctx.case_id, [by_id.get(s.id, s) if s.id in names else s for s in steps], gathered)
         except WorkerError:
             pass  # the steps keep their columns; the ones that cannot run are reported as such
-    return {"steps": [s.model_dump() for s in mapped], "problems": problems, "no_data": no_data}
+    return {"steps": [s.model_dump() for s in mapped], "problems": problems, "no_data": no_data, "joined": joined}
 
 
 async def evidence_round(ctx: Ctx, plan: Plan, questions: list[Question], steps: list[Step], suffix: str, required: bool) -> tuple[dict[str, dict], list[dict]]:
     """Gather, map columns, compute: one round of evidence, each its own saved stage. A required round that yields nothing stops the run with a reason."""
     gathered = await ctx.step(f"gather{suffix}", lambda: gather(ctx, questions, f"gather{suffix}"),
-                              lambda g: f"{sum(1 for x in g.values() if x.get('result_id'))} of {len(g)} questions answered")
+                              lambda g: f"{sum(1 for x in g.values() if x.get('result_id'))} of {len(g)} questions answered"
+                              + (f" ({', '.join(f'{n} {s}' for s, n in _by_source(g).items())})" if len(_by_source(g)) > 1 else ""))
     if required and not any(g.get("result_id") for g in gathered.values()):
-        raise HarnessError("the data agent could not answer any of the questions: " + (data_note(next(iter(gathered.values()), {}).get("answer", ""), 200) or "no answer"))
-    fixed = await ctx.step(f"columns{suffix}", lambda: fix_columns(ctx, steps, gathered), lambda f: f"{len(f['problems'])} column problem(s) left")
+        who = "the data agent could not answer" if all(q.source == "databricks" for q in questions) else "no data source could answer"
+        raise HarnessError(f"{who} any of the questions: " + (data_note(next(iter(gathered.values()), {}).get("answer", ""), 200) or "no answer"))
+    fixed = await ctx.step(f"columns{suffix}", lambda: fix_columns(ctx, steps, gathered),
+                           lambda f: f"{len(f['problems'])} column problem(s) left" + (f"; {sum(1 for j in f['joined'].values() if j.get('ok'))} join(s) made" if f.get("joined") else ""))
     runnable = [Step.model_validate(s) for s in fixed["steps"]]
+    joined = fixed.get("joined") or {}
+    with_joins = {**gathered, **{sid: {"result_id": j["table"]} for sid, j in joined.items() if j.get("ok")}}
 
     async def run_compute() -> list[dict]:
-        return compute(ctx.case_id, runnable, gathered, plan.materiality)
+        return compute(ctx.case_id, runnable, with_joins, plan.materiality, joined)
 
     results = await ctx.step(f"compute{suffix}", run_compute, lambda r: f"{sum(1 for x in r if x['ok'])} of {len(r)} computed")
     if required and not any(r["ok"] for r in results):
         raise HarnessError("no analysis could be computed from the data that came back: " + "; ".join(r["error"] for r in results[:3]))
     return gathered, results
+
+
+def _by_source(gathered: dict[str, dict]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for g in gathered.values():
+        if g.get("result_id"):
+            out[g.get("source", "databricks")] = out.get(g.get("source", "databricks"), 0) + 1
+    return out
 
 
 # ---------------------------------------------------------------- compute
@@ -193,12 +254,14 @@ def resolve_refs(params: dict, gathered: dict[str, dict], step_outputs: dict[str
     return out
 
 
-def compute(case_id: str, steps: list[Step], gathered: dict[str, dict], materiality: Materiality) -> list[dict]:
+def compute(case_id: str, steps: list[Step], gathered: dict[str, dict], materiality: Materiality, joined: dict[str, dict] | None = None) -> list[dict]:
     """Runs every step's analytics on the ledger: steps that read a result first, then the steps that compare figures (reconcile, materiality), which may point at the
-    figures of the first kind ('s1.current_rate'). A step that cannot run is reported with the reason, so the analyst can say what is missing. Results keep the plan's order."""
-    done: dict[str, dict] = {}
+    figures of the first kind ('s1.current_rate'). Join steps were made before the columns were mapped (their outcome is passed in as 'joined', and each successful
+    join is in 'gathered' under its step id, so a step can read it). A step that cannot run is reported with the reason, so the analyst can say what is missing. Results
+    keep the plan's order."""
+    done: dict[str, dict] = {s.id: joined[s.id] for s in steps if s.op == "join" and joined and s.id in joined}
     outputs_by_step: dict[str, dict[str, str]] = {}
-    for step in sorted(steps, key=lambda s: analytics.OPS[s.op].scalar):
+    for step in sorted((s for s in steps if s.id not in done), key=lambda s: analytics.OPS[s.op].scalar):
         try:
             params = resolve_refs(step.params, gathered, outputs_by_step)
             spec = analytics.OPS[step.op]
@@ -301,11 +364,24 @@ def evidence_pack(case_id: str, plan: Plan, questions: list[Question], gathered:
     for q in questions:
         g = gathered.get(q.id) or {}
         rid = g.get("result_id")
-        entry = {"id": q.id, "purpose": q.purpose, "result": rid}
+        entry = {"id": q.id, "purpose": q.purpose, "source": q.source, "result": rid}
         if rid:
-            entry["rows"] = len(c.tables[rid].rows)
-            entry["data_space_note"] = data_note(g.get("answer", ""))
-            entry["filters"] = where_filters(c.tables[rid].sql)
+            t = c.tables[rid]
+            entry["rows"] = len(t.rows)
+            if q.source == "sharepoint":
+                # a file's content is not computed on unless a step reads it, so what the analyst may quote from it is shown here, with where it came from
+                entry["origin"] = t.origin
+                entry["source_note"] = data_note(g.get("answer", ""))
+                if t.kind == "document":
+                    entry["passages"] = [{"section": row[0], "text": str(row[1])[:PASSAGE_SHOWN]} for row in t.rows[:MAX_PACK_PASSAGES]]
+                    entry["more_passages"] = max(0, len(t.rows) - MAX_PACK_PASSAGES)
+                else:
+                    entry["columns"] = t.columns
+                    entry["table_rows"] = [[_round(v) for v in row] for row in t.rows[:MAX_PACK_ROWS]]
+                    entry["more_rows"] = max(0, len(t.rows) - MAX_PACK_ROWS)
+            else:
+                entry["data_space_note"] = data_note(g.get("answer", ""))
+                entry["filters"] = where_filters(t.sql)
             if g.get("scaled_id"):
                 entry["unit_note"] = units.describe(g.get("scales") or {}, g["scaled_id"])
         else:
@@ -478,9 +554,13 @@ def passed_checks(results: list[dict]) -> list[str]:
 
 
 def evidence_line(case_id: str, gathered: dict[str, dict], results: list[dict], run_id: str, kind: str) -> str:
-    data = sorted({g["result_id"] for g in gathered.values() if g.get("result_id")}, key=lambda r: int(r[1:]))
+    def ids(source: str) -> list[str]:
+        return sorted({g["result_id"] for g in gathered.values() if g.get("result_id") and g.get("source", "databricks") == source}, key=lambda r: int(r[1:]))
+
+    data, files = ids("databricks"), ids("sharepoint")
     tables = sorted({g["scaled_id"] for g in gathered.values() if g.get("scaled_id")}, key=lambda t: int(t[1:])) + [r["table"] for r in results if r.get("ok") and not analytics.OPS[r["op"]].scalar]
-    return f"*Evidence: data results {', '.join(data) or 'none'}; tables {', '.join(tables) or 'none'}. {kind} run {run_id}, case {case_id}.*"
+    return (f"*Evidence: data results {', '.join(data) or 'none'}" + (f"; SharePoint files {', '.join(files)}" if files else "")
+            + f"; tables {', '.join(tables) or 'none'}. {kind} run {run_id}, case {case_id}.*")
 
 
 def fallback_headline(plan: Plan, results: list[dict]) -> str:

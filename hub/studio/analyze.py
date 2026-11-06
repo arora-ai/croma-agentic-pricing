@@ -37,6 +37,14 @@ def run_op(case_id: str, op: str, source: str = "", params: dict | None = None, 
     if spec is None:
         raise analytics.AnalyticsError(f"unknown op '{op}'. Available: {', '.join(analytics.OPS)}")
     params = dict(params or {})
+    if op == "join":
+        if not source:
+            raise analytics.AnalyticsError("join needs a source result (an R or T id)")
+        p = analytics.validate(op, params)
+        j = ledger.join_tables(case_id, source, str(p["with"]), str(p["on"]), str(p["right_on"] or ""), p["take"], str(p["how"]), label)
+        label = label.strip() or f"{source} with {p['with']}"
+        return {"table": j["table"], "label": label, "op": op, "source": source, "columns": j["columns"], "row_count": len(j["rows"]), "rows": j["rows"][:preview_rows],
+                "more_rows": max(0, len(j["rows"]) - preview_rows), "outputs": {}, "notes": j["notes"], "checks": {}}
     with ledger._lock:
         c = ledger.case(case_id)
         truncated = False

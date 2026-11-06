@@ -16,5 +16,15 @@
     "<Which measures exist only for part of the business, for example margin and markdown for Stores only.>",
     "<How each ratio is defined: which rows and which table give its numerator and its denominator, so an analysis never divides figures taken on different bases. For example: margin % is merchandise profit divided by net sales, both from the cost table on rows where the cost is available, not profit divided by total sales.>",
     "A week is <Monday to Sunday>. A weekday-aligned year-on-year week starts <364 days earlier>."
-  ]
+  ],
+
+  "sharepoint": {
+    "_help": "Optional. Set enabled to true only when the hub has SHAREPOINT_BACKEND=graph or folder (docs/SHAREPOINT.md). This tells the Scoper and the SharePoint agent what the library holds, so a plan uses SharePoint only for what the data space does not have. List the files the analyses depend on, with the columns they have.",
+    "enabled": false,
+    "about": "<One sentence: whose library it is and what it is for, for example: the merchandising team's plans, promotion calendars and price lists.>",
+    "files": [
+      {"name": "<file name>", "holds": "<what it contains and which period>", "grain": "<for example: one row per campaign and category>", "columns": ["<column heading>", "<column heading>"]}
+    ],
+    "rules": ["<Anything the agents must know: which file is authoritative when there are several versions, what a column's unit is.>"]
+  }
 }

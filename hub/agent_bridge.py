@@ -41,6 +41,9 @@ async def _call(agent: str, text: str, case_id: str) -> str:
         if agent == "data":
             async with _data_slots:
                 answer, usage = await asyncio.wait_for(asyncio.to_thread(_invoke, agent, text), AGENT_CALL_TIMEOUT_S)
+        elif agent == "sharepoint":
+            async with _sharepoint_slots:
+                answer, usage = await asyncio.wait_for(asyncio.to_thread(_invoke, agent, text), AGENT_CALL_TIMEOUT_S)
         else:
             answer, usage = await asyncio.wait_for(asyncio.to_thread(_invoke, agent, text), AGENT_CALL_TIMEOUT_S)
         ok = True
@@ -66,6 +69,7 @@ def _with_case(text: str, case_id: str) -> str:
 WAIT_SECONDS = 80
 _jobs: dict[str, tuple[asyncio.Task, str]] = {}
 _data_slots = asyncio.Semaphore(int(os.getenv("DATA_PARALLELISM", "4")))  # keeps a burst of questions from swamping the SQL warehouse
+_sharepoint_slots = asyncio.Semaphore(int(os.getenv("SHAREPOINT_PARALLELISM", "3")))  # and a burst of file reads from running into SharePoint's throttling
 
 
 async def _wait(job_id: str) -> str:
@@ -88,7 +92,13 @@ def _harness_deps() -> harness_runtime.Deps:
     async def ask_data(question: str, case_id: str) -> str:
         return await _call("data", _with_case(question, case_id), case_id)
 
-    return harness_runtime.Deps(ask_data=ask_data, worker=harness_workers.call_worker, save_finding=lambda *a: case_context.save_finding(*a), get_case=case_context.snapshot)
+    async def ask_source(source: str, question: str, case_id: str) -> str:
+        if source == "sharepoint":
+            return await _call("sharepoint", _with_case(question, case_id), case_id)
+        return f"ERROR: the {source} source is not connected to this hub."
+
+    return harness_runtime.Deps(ask_data=ask_data, ask_source=ask_source, worker=harness_workers.call_worker, save_finding=lambda *a: case_context.save_finding(*a),
+                                get_case=case_context.snapshot)
 
 
 async def _run_harness(name: str, brief: str, case_id: str) -> str:

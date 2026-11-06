@@ -437,6 +437,11 @@ OPS: dict[str, OpSpec] = {s.name: s for s in [
            ["a", "b"], {"tolerance_pct": 0.5}, ["first", "second", "difference", "difference_pct", "within_tolerance"], scalar=True),
     OpSpec("materiality", materiality, "Is a change big enough, against the base it applies to, to be called a driver? Params change and base are cell references or numbers.",
            ["change", "base"], {"min_rel_pct": 2.0, "abs_floor": 0.0}, ["change", "base", "relative_change_pct", "material"], scalar=True),
+    OpSpec("join", None, "Puts two questions' results side by side on a shared key, for example weekly sales from the data space with the promotion planned that week from a SharePoint "
+           "file, so the next steps can analyse them together. source is the question whose rows are kept (it holds the measure), 'with' is the id of the other question, 'on' the key column "
+           "in the source, 'right_on' the key column in the other result when it is named differently, 'take' the other result's columns to add. The other result must have one row per "
+           "key. The outcome is a table that later steps can read by writing this step's id as their source (for example 'source': 's1').",
+           ["on", "with"], {"right_on": "", "take": [], "how": "left"}, [], columns=("on",)),
 ]}
 
 
@@ -461,6 +466,8 @@ def run(op: str, rows: list[dict] | None, params: dict) -> Result:
     if spec is None:
         raise AnalyticsError(f"unknown op '{op}'. Available: {', '.join(OPS)}")
     full = validate(op, params)
+    if spec.fn is None:
+        raise AnalyticsError(f"{op} joins results in the evidence ledger; it cannot run on rows alone")
     return spec.fn(**full) if spec.scalar else spec.fn(rows or [], **full)
 
 
@@ -469,5 +476,6 @@ def catalog() -> str:
     lines = []
     for s in OPS.values():
         opt = ", ".join(f"{k} (default {v})" for k, v in s.optional.items())
-        lines.append(f"- {s.name}: {s.about}\n  params: {', '.join(s.required)}" + (f"; optional: {opt}" if opt else "") + f"\n  outputs (usable in rules): {', '.join(s.outputs)}")
+        outputs = f"\n  outputs (usable in rules): {', '.join(s.outputs)}" if s.outputs else "\n  outputs: a table for later steps, no figures"
+        lines.append(f"- {s.name}: {s.about}\n  params: {', '.join(s.required)}" + (f"; optional: {opt}" if opt else "") + outputs)
     return "\n".join(lines)

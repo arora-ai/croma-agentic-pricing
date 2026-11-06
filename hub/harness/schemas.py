@@ -39,6 +39,8 @@ class Question(BaseModel):
     purpose: str = ""
     ask: str = Field(min_length=12)  # self-contained: exact dates, scope, measure, grouping and the column names wanted
     columns: list[str] = Field(default_factory=list)  # the columns the steps will read; the Data agent is asked to use these names
+    source: Literal["databricks", "sharepoint"] = "databricks"  # which connected source answers it: the Data agent (Databricks) or the SharePoint agent (files)
+    form: Literal["table", "text"] = "table"  # what comes back: rows that steps can compute on, or passages of a document that the analyst reads (SharePoint only)
 
     @field_validator("id")
     @classmethod
@@ -46,6 +48,12 @@ class Question(BaseModel):
         if not ID.match(v):
             raise ValueError(f"id '{v}' must be a short name such as q1")
         return v
+
+    @model_validator(mode="after")
+    def _form(self) -> "Question":
+        if self.form == "text" and self.source != "sharepoint":
+            raise ValueError(f"question {self.id}: only a SharePoint question can ask for text (form 'text'); the data space returns tables")
+        return self
 
 
 class Step(BaseModel):
@@ -95,6 +103,26 @@ def require_reconciled(steps: list["Step"]) -> None:
                                  f"{', '.join(f'{s.id}.{m}' for m in missing)}, for example params {{\"a\": \"{s.id}.{missing[0]}\", \"b\": \"q2:#0:cur_margin_pct\"}}")
 
 
+def check_sources(questions: list["Question"], steps: list["Step"]) -> None:
+    """Where steps may read from: a step reads a table question, or the output of a join step (by its step id). A join's 'with' is a table question or another join."""
+    tables = {q.id for q in questions if q.form == "table"}
+    text = {q.id for q in questions if q.form == "text"}
+    joins = {s.id for s in steps if s.op == "join"}
+    allowed = tables | joins
+    bad = []
+    for s in steps:
+        if s.source and s.source in text:
+            bad.append(f"{s.id} reads '{s.source}', which is a text question (it returns passages for the analyst to read, not rows to compute on)")
+        elif s.source and s.source not in allowed:
+            bad.append(f"{s.id} reads '{s.source}'")
+        other = s.params.get("with") if s.op == "join" else None
+        if s.op == "join" and (not isinstance(other, str) or other not in allowed or other == s.id):
+            bad.append(f"{s.id} joins with '{other}', which is not a table question or another join step")
+    if bad:
+        options = f"a question id ({', '.join(sorted(tables)) or 'none'})" + (f" or a join step id ({', '.join(sorted(joins))})" if joins else "")
+        raise ValueError(f"steps must read {options}: {'; '.join(bad)}")
+
+
 class Plan(BaseModel):
     restated: str = Field(min_length=10)
     kpi: str
@@ -111,11 +139,9 @@ class Plan(BaseModel):
     def _wiring(self) -> "Plan":
         qids = [q.id for q in self.questions]
         sids = [s.id for s in self.steps]
-        if len(set(qids)) != len(qids) or len(set(sids)) != len(sids):
-            raise ValueError("question ids and step ids must each be unique")
-        bad = [f"{s.id} reads '{s.source}'" for s in self.steps if s.source and s.source not in qids]
-        if bad:
-            raise ValueError(f"steps must read a question id ({', '.join(qids)}): {'; '.join(bad)}")
+        if len(set(qids)) != len(qids) or len(set(sids)) != len(sids) or set(qids) & set(sids):
+            raise ValueError("question ids and step ids must each be unique, and no question may share an id with a step")
+        check_sources(self.questions, self.steps)
         require_reconciled(self.steps)
         return self
 
@@ -166,7 +192,7 @@ class ResearchPlan(Plan, Capped):
         for h in self.hypotheses:
             if h.step not in steps:
                 raise ValueError(f"hypothesis {h.id} tests step '{h.step}', which is not a step id ({', '.join(steps)})")
-            if steps[h.step].op in ("reconcile", "materiality"):
+            if steps[h.step].op in ("reconcile", "materiality", "join"):
                 raise ValueError(f"hypothesis {h.id}: test it with a decomposition, concentration, trend or target step, not {steps[h.step].op}")
             check_rule(h.supports_if, steps[h.step])
             if h.refutes_if.strip():
@@ -183,10 +209,14 @@ class FollowUp(Capped):
 
     @model_validator(mode="after")
     def _wiring(self) -> "FollowUp":
-        qids = {q.id for q in self.questions}
-        bad = [f"{s.id} reads '{s.source}'" for s in self.steps if s.source and s.source not in qids]
-        if bad:
-            raise ValueError(f"follow-up steps must read the follow-up question ids ({', '.join(sorted(qids))}): {'; '.join(bad)}")
+        qids = [q.id for q in self.questions]
+        sids = [s.id for s in self.steps]
+        if len(set(qids)) != len(qids) or len(set(sids)) != len(sids) or set(qids) & set(sids):
+            raise ValueError("follow-up question ids and step ids must each be unique, and no question may share an id with a step")
+        try:
+            check_sources(self.questions, self.steps)
+        except ValueError as exc:
+            raise ValueError(str(exc).replace("steps must read", "follow-up steps must read the follow-up", 1))
         require_reconciled(self.steps)
         return self
 

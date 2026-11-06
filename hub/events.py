@@ -76,6 +76,18 @@ def _detail(server: str, tool: str, args: dict, result: str) -> tuple[dict, bool
                   "statement_id": parsed.get("statement_id")}
         summary = f"{parsed.get('row_count', 0)} rows" if ok else str(parsed.get("error"))[:120]
         return detail, ok, summary
+    if server == "sharepoint" and isinstance(parsed, dict):
+        if tool == "search_sharepoint":
+            detail = {"query": args.get("query"), "files": _clip([f"{f.get('name')} ({f.get('kind')}, {f.get('modified')})" for f in parsed.get("files") or []]), "error": parsed.get("error"),
+                      "backend": parsed.get("backend")}
+            return detail, ok, (f"{parsed.get('count', 0)} file(s)" if ok else str(parsed.get("error"))[:120])
+        rows = parsed.get("rows") or []
+        detail = {"file": (parsed.get("file") or {}).get("name"), "origin": parsed.get("origin"), "sheet": args.get("sheet") or None, "focus": args.get("focus") or None,
+                  "filter": args.get("filter") or None,
+                  "kind": parsed.get("kind"), "columns": parsed.get("columns"), "rows": _clip(rows[:5]), "row_count": parsed.get("row_count"), "truncated": parsed.get("truncated_at_max_rows"),
+                  "error": parsed.get("error"), "backend": parsed.get("backend")}
+        what = "passages" if parsed.get("kind") == "document" else "rows"
+        return detail, ok, (f"{parsed.get('row_count', 0)} {what} from {(parsed.get('file') or {}).get('name', 'file')}" if ok else str(parsed.get("error"))[:120])
     detail = {"args": _clip(args), "result": _clip(parsed if parsed is not None else result)}
     return detail, ok, ("ok" if ok else str(parsed.get("error"))[:120])
 
@@ -92,6 +104,8 @@ def traced(server: str, name: str | None = None):
             case_id = call_args.get("case_id") or call_args.get("conversation_id") or ""
             if server == "genie":
                 caller = "data"
+            elif server == "sharepoint":
+                caller = "sharepoint"
             elif tool == "create_case":
                 caller = "cx"
             elif tool in ("save_report", "render_report"):

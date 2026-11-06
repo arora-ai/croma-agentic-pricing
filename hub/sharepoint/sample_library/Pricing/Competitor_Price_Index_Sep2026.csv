@@ -1,0 +1,145 @@
+Week start,Category,Competitor,Croma price gap %
+2026-07-27,iPhones,Amazon,-0.7
+2026-07-27,Macbook,Amazon,0.8
+2026-07-27,Air Conditioners,Amazon,-2.7
+2026-07-27,Laptops,Amazon,-1.2
+2026-07-27,Smart Phones,Amazon,-1.7
+2026-07-27,Mobile Accessories,Amazon,-3.2
+2026-07-27,iPhones,Reliance Digital,-0.2
+2026-07-27,Macbook,Reliance Digital,0.3
+2026-07-27,Air Conditioners,Reliance Digital,0.3
+2026-07-27,Laptops,Reliance Digital,0.8
+2026-07-27,Smart Phones,Reliance Digital,0.3
+2026-07-27,Mobile Accessories,Reliance Digital,0.8
+2026-08-03,iPhones,Amazon,-0.5
+2026-08-03,Macbook,Amazon,1.0
+2026-08-03,Air Conditioners,Amazon,-2.5
+2026-08-03,Laptops,Amazon,-1.0
+2026-08-03,Smart Phones,Amazon,-4.5
+2026-08-03,Mobile Accessories,Amazon,-3.0
+2026-08-03,iPhones,Reliance Digital,0.0
+2026-08-03,Macbook,Reliance Digital,0.5
+2026-08-03,Air Conditioners,Reliance Digital,0.5
+2026-08-03,Laptops,Reliance Digital,1.0
+2026-08-03,Smart Phones,Reliance Digital,0.5
+2026-08-03,Mobile Accessories,Reliance Digital,1.0
+2026-08-10,iPhones,Amazon,-0.3
+2026-08-10,Macbook,Amazon,1.2
+2026-08-10,Air Conditioners,Amazon,-2.3
+2026-08-10,Laptops,Amazon,-0.8
+2026-08-10,Smart Phones,Amazon,-4.3
+2026-08-10,Mobile Accessories,Amazon,-2.8
+2026-08-10,iPhones,Reliance Digital,0.2
+2026-08-10,Macbook,Reliance Digital,0.7
+2026-08-10,Air Conditioners,Reliance Digital,0.7
+2026-08-10,Laptops,Reliance Digital,1.2
+2026-08-10,Smart Phones,Reliance Digital,0.7
+2026-08-10,Mobile Accessories,Reliance Digital,1.2
+2026-08-17,iPhones,Amazon,-0.7
+2026-08-17,Macbook,Amazon,0.8
+2026-08-17,Air Conditioners,Amazon,-2.7
+2026-08-17,Laptops,Amazon,-1.2
+2026-08-17,Smart Phones,Amazon,-1.7
+2026-08-17,Mobile Accessories,Amazon,-3.2
+2026-08-17,iPhones,Reliance Digital,-0.2
+2026-08-17,Macbook,Reliance Digital,0.3
+2026-08-17,Air Conditioners,Reliance Digital,0.3
+2026-08-17,Laptops,Reliance Digital,0.8
+2026-08-17,Smart Phones,Reliance Digital,0.3
+2026-08-17,Mobile Accessories,Reliance Digital,0.8
+2026-08-24,iPhones,Amazon,-0.5
+2026-08-24,Macbook,Amazon,1.0
+2026-08-24,Air Conditioners,Amazon,-2.5
+2026-08-24,Laptops,Amazon,-1.0
+2026-08-24,Smart Phones,Amazon,-1.5
+2026-08-24,Mobile Accessories,Amazon,-3.0
+2026-08-24,iPhones,Reliance Digital,0.0
+2026-08-24,Macbook,Reliance Digital,0.5
+2026-08-24,Air Conditioners,Reliance Digital,0.5
+2026-08-24,Laptops,Reliance Digital,1.0
+2026-08-24,Smart Phones,Reliance Digital,0.5
+2026-08-24,Mobile Accessories,Reliance Digital,1.0
+2026-08-31,iPhones,Amazon,-0.3
+2026-08-31,Macbook,Amazon,1.2
+2026-08-31,Air Conditioners,Amazon,-2.3
+2026-08-31,Laptops,Amazon,-0.8
+2026-08-31,Smart Phones,Amazon,-1.3
+2026-08-31,Mobile Accessories,Amazon,-2.8
+2026-08-31,iPhones,Reliance Digital,0.2
+2026-08-31,Macbook,Reliance Digital,0.7
+2026-08-31,Air Conditioners,Reliance Digital,0.7
+2026-08-31,Laptops,Reliance Digital,1.2
+2026-08-31,Smart Phones,Reliance Digital,0.7
+2026-08-31,Mobile Accessories,Reliance Digital,1.2
+2026-09-07,iPhones,Amazon,-0.7
+2026-09-07,Macbook,Amazon,0.8
+2026-09-07,Air Conditioners,Amazon,-2.7
+2026-09-07,Laptops,Amazon,3.3
+2026-09-07,Smart Phones,Amazon,-1.7
+2026-09-07,Mobile Accessories,Amazon,-3.2
+2026-09-07,iPhones,Reliance Digital,-0.2
+2026-09-07,Macbook,Reliance Digital,0.3
+2026-09-07,Air Conditioners,Reliance Digital,0.3
+2026-09-07,Laptops,Reliance Digital,0.8
+2026-09-07,Smart Phones,Reliance Digital,0.3
+2026-09-07,Mobile Accessories,Reliance Digital,0.8
+2026-09-14,iPhones,Amazon,-0.5
+2026-09-14,Macbook,Amazon,1.0
+2026-09-14,Air Conditioners,Amazon,-2.5
+2026-09-14,Laptops,Amazon,3.5
+2026-09-14,Smart Phones,Amazon,-1.5
+2026-09-14,Mobile Accessories,Amazon,-3.0
+2026-09-14,iPhones,Reliance Digital,0.0
+2026-09-14,Macbook,Reliance Digital,0.5
+2026-09-14,Air Conditioners,Reliance Digital,0.5
+2026-09-14,Laptops,Reliance Digital,1.0
+2026-09-14,Smart Phones,Reliance Digital,0.5
+2026-09-14,Mobile Accessories,Reliance Digital,1.0
+2026-09-21,iPhones,Amazon,-0.3
+2026-09-21,Macbook,Amazon,1.2
+2026-09-21,Air Conditioners,Amazon,-2.3
+2026-09-21,Laptops,Amazon,3.7
+2026-09-21,Smart Phones,Amazon,-1.3
+2026-09-21,Mobile Accessories,Amazon,-2.8
+2026-09-21,iPhones,Reliance Digital,0.2
+2026-09-21,Macbook,Reliance Digital,0.7
+2026-09-21,Air Conditioners,Reliance Digital,0.7
+2026-09-21,Laptops,Reliance Digital,1.2
+2026-09-21,Smart Phones,Reliance Digital,0.7
+2026-09-21,Mobile Accessories,Reliance Digital,1.2
+2026-09-28,iPhones,Amazon,-0.7
+2026-09-28,Macbook,Amazon,0.8
+2026-09-28,Air Conditioners,Amazon,-2.7
+2026-09-28,Laptops,Amazon,3.3
+2026-09-28,Smart Phones,Amazon,-1.7
+2026-09-28,Mobile Accessories,Amazon,-3.2
+2026-09-28,iPhones,Reliance Digital,-0.2
+2026-09-28,Macbook,Reliance Digital,0.3
+2026-09-28,Air Conditioners,Reliance Digital,0.3
+2026-09-28,Laptops,Reliance Digital,0.8
+2026-09-28,Smart Phones,Reliance Digital,0.3
+2026-09-28,Mobile Accessories,Reliance Digital,0.8
+2026-10-05,iPhones,Amazon,-0.5
+2026-10-05,Macbook,Amazon,1.0
+2026-10-05,Air Conditioners,Amazon,-2.5
+2026-10-05,Laptops,Amazon,3.5
+2026-10-05,Smart Phones,Amazon,-1.5
+2026-10-05,Mobile Accessories,Amazon,-3.0
+2026-10-05,iPhones,Reliance Digital,0.0
+2026-10-05,Macbook,Reliance Digital,0.5
+2026-10-05,Air Conditioners,Reliance Digital,0.5
+2026-10-05,Laptops,Reliance Digital,1.0
+2026-10-05,Smart Phones,Reliance Digital,0.5
+2026-10-05,Mobile Accessories,Reliance Digital,1.0
+2026-10-12,iPhones,Amazon,-0.3
+2026-10-12,Macbook,Amazon,1.2
+2026-10-12,Air Conditioners,Amazon,-2.3
+2026-10-12,Laptops,Amazon,3.7
+2026-10-12,Smart Phones,Amazon,-1.3
+2026-10-12,Mobile Accessories,Amazon,-2.8
+2026-10-12,iPhones,Reliance Digital,0.2
+2026-10-12,Macbook,Reliance Digital,0.7
+2026-10-12,Air Conditioners,Reliance Digital,0.7
+2026-10-12,Laptops,Reliance Digital,1.2
+2026-10-12,Smart Phones,Reliance Digital,0.7
+2026-10-12,Mobile Accessories,Reliance Digital,1.2
