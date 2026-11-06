@@ -10,9 +10,10 @@ The data space holds transactions, margin, markdown, stock and targets. People a
 
 | Question | Databricks answers | SharePoint answers | How they combine |
 |---|---|---|---|
-| Did the August promotions explain the September dip in Laptops? | Weekly NMV for Laptops | The weekly planned discount from the promotion calendar | A `join` on the week, then a `trend` on the joined table |
-| Is a competitor's price move behind the fall in Smart Phones? | NMV and units by week | The weekly price gap against Amazon | A `join` on the week; the Analyst reads the joined table |
-| Which store changes could explain the zone shortfall? | Actual against target by zone | The store openings, closures and refits by zone | The Analyst reads the file's rows beside the target gap |
+| Did the August promotions explain the September dip in Laptops? | Weekly NMV for Laptops | The weekly planned discount rows from the promotion calendar | A `join` on the week, then a `trend` on the joined table |
+| Is a competitor's price move behind the fall in Smart Phones? | NMV and units by week | The weekly price gap rows against Amazon | A `join` on the week; the Analyst reads the joined table |
+| Which store changes could explain the zone shortfall? | NMV by zone, both months | The store change rows | An `aggregate` (count of closures and refits per zone), then a `join` on the zone |
+| Did the promotion plan line up with the category movements? | NMV and units by category, both months | The weekly plan rows for every category | An `aggregate` (mean planned discount per category and month), then a `join` on the category |
 | Was the discount within policy? | The discount depth by category | The policy's caps, as text | The Analyst quotes the cap; the number audit traces it to the passage |
 
 ## How a run works
@@ -28,7 +29,7 @@ flowchart LR
 
 1. **Plan.** The Scoper is told which sources are connected (`limits.sources`) and what the library holds (the `sharepoint` block of `config/data_profile.json`). Each question carries `source` (`databricks`, the default, or `sharepoint`) and, for SharePoint, `form`: `table` (rows a step can compute on) or `text` (passages the Analyst reads). A plan that uses a source that is not connected is sent back to the Scoper with the reason.
 2. **Get data.** The harness asks every question of its source's agent, in parallel: the Data agent for Databricks, the **SharePoint agent** for files. Each answer is a result in the ledger with an id (R7), whichever source it came from.
-3. **Join and compute.** A `join` step puts one source's table beside the other's on a shared key (a week, a category, a zone). Later steps read the join by its step id. The analytics steps, the reconcile checks and the hypothesis rules work as before.
+3. **Aggregate, join and compute.** The SharePoint agent only reads: it never calculates, so a plan asks it for the file's *rows* (one row per week and category, one row per store change) and an `aggregate` step summarises them in code (count, sum, mean, min or max of a column, each over the rows that meet its own condition, grouped by a key; a key with no matching row gets a count of 0). A `join` step then puts one source's table beside the other's on a shared key (a week, a category, a zone): the other side must have one row per key. Later steps read the join by its step id. The analytics steps, the reconcile checks and the hypothesis rules work as before. A join or aggregate that names a column the file does not have goes back to the Scoper once, which sees the file's own headings.
 4. **Conclude, verify, challenge.** The Analyst sees, for each SharePoint question, where the content came from (file, sheet, last modified date) and the content itself (the top rows, or the passages). The number audit counts a table's cells and the numbers written in a document's passages as evidence, so a figure quoted from a file is traced and a figure that is in neither the data nor the file is removed. The Critic is told to check that the file is the right one, is current, and is on the same basis as what it is compared with, and that a plan or forecast is not presented as an outcome.
 
 If SharePoint fails but Databricks answers, the run goes on with what it has, and says what could not be checked. If neither answers, the run stops with the reason.
@@ -49,7 +50,7 @@ What the connector does to a file before it reaches the ledger:
 * the file's own column headings are kept (the harness maps the Scoper's names onto them, and the Scoper gets one chance to re-point a step whose column is not there);
 * the filter selects rows and nothing else: the agent does not compute.
 
-A join refuses a SharePoint table with several rows per key (it would otherwise have to pick one silently): the Scoper is told to ask for one row per key, and the agent filters to get it.
+A join refuses a SharePoint table with several rows per key (it would otherwise have to pick one silently): the Scoper is told to filter the question to one row per key, or to aggregate it first.
 
 ## Turning it on
 
@@ -109,6 +110,20 @@ For a quick test from a laptop, `SHAREPOINT_AUTH=token` with `SHAREPOINT_TOKEN` 
 ## The sample library
 
 `hub/sharepoint/sample_library` holds five invented files in four folders, made by `python hub/sharepoint/make_sample_library.py` so they can be regenerated and compared: a weekly promotion plan by category for 27 July to 12 October 2026 (with the Independence Day sale in early August, so a September dip has something to explain), a weekly competitor price gap, store openings, closures and refits, a markdown and promotion policy, and the zonal managers' September notes. None of it is Croma data.
+
+## What the live runs showed
+
+Run against the prototype (Databricks through the data gateway, the sample library through the folder backend, the real Foundry agents):
+
+* **Analysis, "do the planned promotions line up with the weeks where Laptops sales were highest and lowest?"** The Scoper planned one Databricks question, one SharePoint question and a `join`; both sources answered in parallel (2 of 2), the join was made, every figure was traced, and the brief named the file and its modified date in its basis and said that a promotion plan is not a record of what ran. About two minutes.
+* **Research, "why did Stores NMV fall in September, and was it the promotions ending, competitor prices or store closures?"** Five questions (two Databricks, three SharePoint), six join and aggregate tables, three hypotheses decided by rule, and a Critic that sent the first conclusion back with six issues (among them an aggregation that used only one competitor's rows, and a network aggregation that missed events), after which one follow-up round and a revision. About four minutes of hub time.
+
+What went wrong first, and what changed because of it:
+
+* The first Research run failed to test any SharePoint-backed explanation. The Scoper had asked the SharePoint agent for *calculated* figures (calendar-weighted means, counts per zone); the agent, correctly, only reads. The Scoper is now told that the SharePoint agent returns rows and never totals, and the new `aggregate` step does the arithmetic in code. A join or aggregate that names a column the file does not have also goes back to the Scoper once (it sees the file's own headings).
+* Redeploying the API Management gateways for the new route exposed a bug in `deploy_apim.ps1`: it used `Genie.DatabricksHost` as the gateway's Databricks backend, which is the gateway's own URL once the hub uses it, so the gateway called itself and every Genie call returned a 401. `Apim.DatabricksUrl` now carries the workspace URL, and the script refuses an API Management address.
+
+The quality of a plan still depends on the Scoper: the joins matched only the six categories the sample files cover (the brief said so in its caveats), and the Critic, not the plan, caught the one-competitor aggregation. Treat the runs as proof that the path works, not as a measure of how often a plan is right; that is the Evaluations workstream.
 
 ## What to know before relying on it
 
