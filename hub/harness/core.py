@@ -10,7 +10,7 @@ from typing import Any
 import settings
 from harness import units
 from harness.runtime import Ctx, HarnessError
-from harness.schemas import FixedSteps, FollowUp, Materiality, Plan, Question, Step
+from harness.schemas import TABLE_OPS, FixedSteps, FollowUp, Materiality, Plan, Question, Step
 from harness.workers import WorkerError
 from studio import analytics, analyze, audit, ledger
 
@@ -148,47 +148,68 @@ def result_shapes(case_id: str, gathered: dict[str, dict], rows: int = 2) -> dic
     return shapes
 
 
-def run_joins(case_id: str, steps: list[Step], gathered: dict[str, dict]) -> tuple[dict[str, dict], dict[str, dict]]:
-    """Runs the join steps in plan order, each on the question results (and earlier joins) it names. Returns (what each join produced or why it failed, the gathered
-    results with every successful join added under its step id, so later steps can read it like a question)."""
-    out: dict[str, dict] = {}
-    merged = dict(gathered)
-    for step in steps:
-        if step.op != "join":
-            continue
-        try:
-            params = resolve_refs(step.params, merged)
-            other = step.params.get("with")
-            if other and other in merged and not analysed_id(merged[other]):
-                raise analytics.AnalyticsError(f"question {other} returned no data")
-            if other and other in merged:
-                params["with"] = analysed_id(merged[other])
-            source = analysed_id(merged.get(step.source) or {})
-            if not source:
-                raise analytics.AnalyticsError(f"question {step.source} returned no data")
-            run = analyze.run_op(case_id, "join", source, params, step.label, preview_rows=MAX_PACK_ROWS + 4)
-            out[step.id] = {"step": step.id, "ok": True, "unit": step.unit, **run}
-            merged[step.id] = {"result_id": run["table"]}
-        except Exception as exc:
-            reason = exc.args[0] if isinstance(exc, KeyError) and exc.args else exc
-            out[step.id] = {"step": step.id, "ok": False, "label": step.label, "op": step.op, "error": f"{type(exc).__name__}: {reason}"}
+def run_tables(case_id: str, steps: list[Step], gathered: dict[str, dict], prior: dict[str, dict] | None = None, only: set[str] | None = None) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Runs the join and aggregate steps, each on the question results (and earlier steps of the same kind) it names, in an order that respects what reads what. Returns (what
+    each produced or why it failed, the gathered results with every successful one added under its step id, so later steps can read it like a question). With 'prior' and
+    'only', only the named steps run again (after a repair) and the rest keep their earlier outcome, so no table is made twice."""
+    out: dict[str, dict] = {k: v for k, v in (prior or {}).items() if only is None or k not in only}
+    merged = {**gathered, **{sid: {"result_id": b["table"]} for sid, b in out.items() if b.get("ok")}}
+    pending = [s for s in steps if s.op in TABLE_OPS and (only is None or s.id in only)]
+    while pending:
+        waiting = {p.id for p in pending}
+        ready = [s for s in pending if not ({s.source, s.params.get("with")} & (waiting - {s.id}))] or pending[:1]  # a cycle: the first one fails with its reason
+        for step in ready:
+            pending.remove(step)
+            try:
+                params = resolve_refs(step.params, merged)
+                if step.op == "join":
+                    other = step.params.get("with")
+                    if other and other in merged:
+                        if not analysed_id(merged[other]):
+                            raise analytics.AnalyticsError(f"question {other} returned no data")
+                        params["with"] = analysed_id(merged[other])
+                    elif other in {s.id for s in steps}:
+                        raise analytics.AnalyticsError(f"step {other} returned no data")
+                source = analysed_id(merged.get(step.source) or {})
+                if not source:
+                    raise analytics.AnalyticsError(f"{'step' if step.source in {s.id for s in steps} else 'question'} {step.source} returned no data")
+                run = analyze.run_op(case_id, step.op, source, params, step.label, preview_rows=MAX_PACK_ROWS + 4)
+                out[step.id] = {"step": step.id, "ok": True, "unit": step.unit, **run}
+                merged[step.id] = {"result_id": run["table"]}
+            except Exception as exc:
+                reason = exc.args[0] if isinstance(exc, KeyError) and exc.args else exc
+                out[step.id] = {"step": step.id, "ok": False, "label": step.label, "op": step.op, "error": f"{type(exc).__name__}: {reason}"}
     return out, merged
 
 
+COLUMN_ERROR = re.compile(r"has no column|column\(s\)|column '.*' not found|not found\. The result has")
+
+
 async def fix_columns(ctx: Ctx, steps: list[Step], gathered: dict[str, dict]) -> dict:
-    """Joins the results that the plan joins, maps step columns onto what came back, and when a column is really missing gives the scoper one chance to re-point the step."""
-    joined, gathered = run_joins(ctx.case_id, steps, gathered)
-    mapped, problems, no_data = remap_steps(ctx.case_id, steps, gathered)
+    """Makes the join and aggregate tables, maps step columns onto what came back, and when a column is really missing (in a join, an aggregate or any other step) gives the
+    scoper one chance to re-point the step at the columns the result has."""
+    built, merged = run_tables(ctx.case_id, steps, gathered)
+    broken = {sid: b for sid, b in built.items() if not b.get("ok") and COLUMN_ERROR.search(b.get("error", ""))}
+    if broken:
+        try:
+            fixed = await ctx.worker("scoper", "fix_steps", {"problems": [f"step {sid}: {b['error']}" for sid, b in broken.items()], "steps": [s.model_dump() for s in steps if s.id in broken],
+                                                             "results": result_shapes(ctx.case_id, merged)}, FixedSteps)
+            by_id = {s.id: s for s in fixed.steps}
+            steps = [by_id.get(s.id, s) if s.id in broken and by_id.get(s.id) and by_id[s.id].op == s.op else s for s in steps]
+            built, merged = run_tables(ctx.case_id, steps, gathered, prior=built, only={sid for sid, b in built.items() if not b.get("ok")})  # also the steps that waited on a broken one
+        except WorkerError:
+            pass  # the steps keep their columns; the ones that cannot run are reported as such
+    mapped, problems, no_data = remap_steps(ctx.case_id, steps, merged)
     if problems:
         names = {re.match(r"step (\S+):", p).group(1) for p in problems if re.match(r"step (\S+):", p)}
         try:
             fixed = await ctx.worker("scoper", "fix_steps", {"problems": problems, "steps": [s.model_dump() for s in steps if s.id in names],
-                                                             "results": result_shapes(ctx.case_id, gathered)}, FixedSteps)
+                                                             "results": result_shapes(ctx.case_id, merged)}, FixedSteps)
             by_id = {s.id: s for s in fixed.steps}
-            mapped, problems, no_data = remap_steps(ctx.case_id, [by_id.get(s.id, s) if s.id in names else s for s in steps], gathered)
+            mapped, problems, no_data = remap_steps(ctx.case_id, [by_id.get(s.id, s) if s.id in names else s for s in steps], merged)
         except WorkerError:
             pass  # the steps keep their columns; the ones that cannot run are reported as such
-    return {"steps": [s.model_dump() for s in mapped], "problems": problems, "no_data": no_data, "joined": joined}
+    return {"steps": [s.model_dump() for s in mapped], "problems": problems, "no_data": no_data, "joined": built}
 
 
 async def evidence_round(ctx: Ctx, plan: Plan, questions: list[Question], steps: list[Step], suffix: str, required: bool) -> tuple[dict[str, dict], list[dict]]:
@@ -200,7 +221,7 @@ async def evidence_round(ctx: Ctx, plan: Plan, questions: list[Question], steps:
         who = "the data agent could not answer" if all(q.source == "databricks" for q in questions) else "no data source could answer"
         raise HarnessError(f"{who} any of the questions: " + (data_note(next(iter(gathered.values()), {}).get("answer", ""), 200) or "no answer"))
     fixed = await ctx.step(f"columns{suffix}", lambda: fix_columns(ctx, steps, gathered),
-                           lambda f: f"{len(f['problems'])} column problem(s) left" + (f"; {sum(1 for j in f['joined'].values() if j.get('ok'))} join(s) made" if f.get("joined") else ""))
+                           lambda f: f"{len(f['problems'])} column problem(s) left" + (f"; {sum(1 for j in f['joined'].values() if j.get('ok'))} of {len(f['joined'])} join/aggregate table(s) made" if f.get("joined") else ""))
     runnable = [Step.model_validate(s) for s in fixed["steps"]]
     joined = fixed.get("joined") or {}
     with_joins = {**gathered, **{sid: {"result_id": j["table"]} for sid, j in joined.items() if j.get("ok")}}
@@ -259,7 +280,7 @@ def compute(case_id: str, steps: list[Step], gathered: dict[str, dict], material
     figures of the first kind ('s1.current_rate'). Join steps were made before the columns were mapped (their outcome is passed in as 'joined', and each successful
     join is in 'gathered' under its step id, so a step can read it). A step that cannot run is reported with the reason, so the analyst can say what is missing. Results
     keep the plan's order."""
-    done: dict[str, dict] = {s.id: joined[s.id] for s in steps if s.op == "join" and joined and s.id in joined}
+    done: dict[str, dict] = {s.id: joined[s.id] for s in steps if s.op in TABLE_OPS and joined and s.id in joined}
     outputs_by_step: dict[str, dict[str, str]] = {}
     for step in sorted((s for s in steps if s.id not in done), key=lambda s: analytics.OPS[s.op].scalar):
         try:

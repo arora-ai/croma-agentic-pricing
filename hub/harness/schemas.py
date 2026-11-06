@@ -103,23 +103,29 @@ def require_reconciled(steps: list["Step"]) -> None:
                                  f"{', '.join(f'{s.id}.{m}' for m in missing)}, for example params {{\"a\": \"{s.id}.{missing[0]}\", \"b\": \"q2:#0:cur_margin_pct\"}}")
 
 
+TABLE_OPS = ("join", "aggregate")  # steps whose outcome is a table that other steps can read by the step's id
+
+
 def check_sources(questions: list["Question"], steps: list["Step"]) -> None:
-    """Where steps may read from: a step reads a table question, or the output of a join step (by its step id). A join's 'with' is a table question or another join."""
+    """Where steps may read from: a step reads a table question, or the output of a join or aggregate step (by its step id). A join's 'with' is a table question or another
+    join or aggregate step."""
     tables = {q.id for q in questions if q.form == "table"}
     text = {q.id for q in questions if q.form == "text"}
-    joins = {s.id for s in steps if s.op == "join"}
-    allowed = tables | joins
+    built = {s.id for s in steps if s.op in TABLE_OPS}
+    allowed = tables | built
     bad = []
     for s in steps:
         if s.source and s.source in text:
             bad.append(f"{s.id} reads '{s.source}', which is a text question (it returns passages for the analyst to read, not rows to compute on)")
         elif s.source and s.source not in allowed:
             bad.append(f"{s.id} reads '{s.source}'")
+        elif s.source == s.id:
+            bad.append(f"{s.id} reads itself")
         other = s.params.get("with") if s.op == "join" else None
         if s.op == "join" and (not isinstance(other, str) or other not in allowed or other == s.id):
-            bad.append(f"{s.id} joins with '{other}', which is not a table question or another join step")
+            bad.append(f"{s.id} joins with '{other}', which is not a table question or a join or aggregate step")
     if bad:
-        options = f"a question id ({', '.join(sorted(tables)) or 'none'})" + (f" or a join step id ({', '.join(sorted(joins))})" if joins else "")
+        options = f"a question id ({', '.join(sorted(tables)) or 'none'})" + (f" or a join or aggregate step id ({', '.join(sorted(built))})" if built else "")
         raise ValueError(f"steps must read {options}: {'; '.join(bad)}")
 
 
@@ -192,7 +198,7 @@ class ResearchPlan(Plan, Capped):
         for h in self.hypotheses:
             if h.step not in steps:
                 raise ValueError(f"hypothesis {h.id} tests step '{h.step}', which is not a step id ({', '.join(steps)})")
-            if steps[h.step].op in ("reconcile", "materiality", "join"):
+            if steps[h.step].op in ("reconcile", "materiality", *TABLE_OPS):
                 raise ValueError(f"hypothesis {h.id}: test it with a decomposition, concentration, trend or target step, not {steps[h.step].op}")
             check_rule(h.supports_if, steps[h.step])
             if h.refutes_if.strip():

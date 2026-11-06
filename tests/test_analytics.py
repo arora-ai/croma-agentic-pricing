@@ -210,6 +210,7 @@ def test_every_documented_output_is_really_produced():
         "trend": (rows({"m": 1, "v": 100}, {"m": 2, "v": 120}, {"m": 3, "v": 130}), {"time": "m", "value": "v"}),
         "reconcile": (None, {"a": 1.0, "b": 1.0}),
         "materiality": (None, {"change": 1.0, "base": 10.0}),
+        "aggregate": (rows({"c": "A", "v": 1}, {"c": "A", "v": 3}, {"c": "B", "v": 2}), {"key": "c", "measures": {"total": "sum:v"}}),
     }
     assert set(samples) == set(an.OPS) - {"join"}  # join works on two ledger results, see tests/test_sources.py
     for op, (data, params) in samples.items():

@@ -95,7 +95,7 @@ Example reply (task: research_plan):
 }
 ```
 
-Task fix_steps: the harness could not map some step columns onto what the Data agent returned. Input: problems (what is missing), steps (the affected steps), results (for each question: its result id, the columns it really has, row_count, a two-row preview). Return {"steps": [...]} with the corrected steps: same ids and ops, params pointing at the real column names. If a measure a step needs is not in the result at all, return the closest step the result CAN support (for example a contribution on the columns that exist) with the same id.
+Task fix_steps: the harness could not map some step columns onto what a source returned (or a join or aggregate step named a column the result does not have). Input: problems (what is missing), steps (the affected steps), results (for each question or earlier join or aggregate step: its result id, the columns it really has, row_count, a two-row preview). Return {"steps": [...]} with the corrected steps: same ids and ops, params pointing at the real column names (for an aggregate also the columns named inside its measures and conditions, and for a join its on, right_on and take). A file keeps its own headings, for example "Planned discount %" for the column you called planned_discount_pct: use the heading as it is. If a measure a step needs is not in the result at all, return the closest step the result CAN support (for example a contribution on the columns that exist) with the same id.
 
 Example reply (task: fix_steps):
 ```json

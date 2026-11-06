@@ -46,27 +46,42 @@ SOURCES_OFF = ("Only one data source is connected: the data space described abov
                "(you may leave the field out).")
 
 SOURCES_ON = """Two data sources are connected. Each question names the one that answers it in "source" (default "databricks"):
-- "databricks": the Genie data space described above: Croma's sales, margin, markdown, stock and target tables. Use it for every measure it holds.
+- "databricks": the Genie data space described above: Croma's sales, margin, markdown, stock and target tables. Use it for every measure it holds. It can aggregate (sums, groupings, ratios): that is what SQL is for.
 - "sharepoint": Croma's SharePoint document library, read by the SharePoint agent: {about} Use it for what the data space does not hold and only for that. Never ask SharePoint for a figure the data space has.
 How to plan with SharePoint
+- THE SHAREPOINT AGENT ONLY READS. It returns the rows of a file (optionally filtered by simple conditions such as a category, a competitor or a date range) or the passages of a document. It never calculates: do not ask it for averages, weighted means, totals, counts, shares or anything "per month" or "per zone" that is not already a row of the file. Ask for the ROWS you need (one row per week and category, one row per store change ...) and summarise them with an "aggregate" step, which does the arithmetic exactly. Asking SharePoint for a computed figure returns nothing usable.
 - A SharePoint question has "form": "table" (the default: rows of a spreadsheet or CSV, which steps can compute on) or "text" (passages of a document, such as a policy or a note, which the analyst reads; no step may read a text question). Ask for text only when the brief needs what a document says.
 - Name the file or the kind of file, the sheet if you know it, the period, and the scope, in words ("the festive promotion calendar, for 2026-08-03 to 2026-09-27, for Laptops"). The SharePoint agent finds the file itself, so never invent a file name: use the ones listed below, or describe the document.
 - List the columns you expect in "columns" (lower_snake_case, from the file list below). The file keeps its own headings; the harness maps your names onto them afterwards.
-- To compute on both sources together, add a "join" step: "source" is the question that holds the measure (usually the databricks one), "params": {{"on": the key column in it, "with": the other question's id, "take": [the other question's columns to add]}} and, when the key is named differently there, "right_on". The harness puts the two results side by side; later steps read the join by its step id (for example "source": "s1"). The keys must be written the same way in both questions (weeks as the Monday date such as 2026-09-07, categories exactly as the data space writes them), and the SharePoint side must have one row per key, so say "one row per week" in its question. A join needs no figures of its own, so no hypothesis may be tested on it: test them on the step that reads it.
+- To compute on both sources together, add a "join" step: "source" is the question that holds the measure (usually the databricks one), "params": {{"on": the key column in it, "with": the other question's id (or an aggregate step's id), "take": [the other result's columns to add]}} and, when the key is named differently there, "right_on". The harness puts the two results side by side; later steps read the join by its step id (for example "source": "s1"). The keys must be written the same way in both (weeks as the Monday date such as 2026-09-07, categories exactly as the data space writes them), and the other side must have ONE ROW PER KEY.
+- To get one row per key from a file's rows, add an "aggregate" step on the SharePoint question: "key" is the column to group by and "measures" an object of output name to "function:column where condition" (functions count, sum, mean, min, max; conditions joined with ";"). One aggregate can make several columns, each over its own rows, for example the mean planned discount in each of two months. A key that has no matching row still gets a row (a count of 0).
+- A join or aggregate needs no figures of its own, so no hypothesis may be tested on it: test hypotheses on the step that reads it.
 - Think about whether the brief needs SharePoint at all. A question about sales, margin or markdown alone does not: leave SharePoint out of the plan. Add it when the brief mentions a plan, calendar, price list, policy or document, or when an explanation (a promotion, a competitor price move, a policy change) can only be tested with what the library holds.
 - A step on a column that is not in the plan's unit (a discount depth in %, a price gap in %) needs its own "unit" ("%"), so its figures are not shown in the plan's unit (for example ₹ Cr).
-- The two sources can disagree on basis (a file's period or scope differs from the data space's). State the basis of each in "basis" and in "assumptions".
+- The two sources can disagree on basis (a file's period or scope differs from the data space's). State the basis of each in "basis" and in "assumptions" (for example "weeks that start in the month").
 What the library holds
 {library}
-Example (a plan using both sources; the other fields follow the examples below):
+Example 1: weekly sales beside the weekly plan (the SharePoint question is filtered to one row per week, so it joins directly):
 ```json
 "questions": [
   {{"id": "q1", "purpose": "Weekly NMV for Laptops", "ask": "For Stores only, for Laptops: NMV in ₹ Crore for each week from 2026-08-03 to 2026-09-27, one row per week, with the Monday date of the week as week_start. {{{{STANDING_SCOPE}}}}.", "columns": ["week_start", "nmv"]}},
-  {{"id": "q2", "purpose": "Planned promotion per week", "ask": "From the festive promotion calendar: for Laptops, for each week from 2026-08-03 to 2026-09-27, the campaign and the planned discount depth, one row per week_start (the Monday date).", "columns": ["week_start", "campaign", "discount_depth_pct"], "source": "sharepoint", "form": "table"}}
+  {{"id": "q2", "purpose": "Planned promotion per week", "ask": "From the festive promotion calendar: the weekly plan rows for Laptops for each week from 2026-08-03 to 2026-09-27, one row per week_start (the Monday date).", "columns": ["week_start", "campaign", "planned_discount_pct"], "source": "sharepoint", "form": "table"}}
 ],
 "steps": [
-  {{"id": "s1", "label": "Weekly NMV with the planned discount", "op": "join", "source": "q1", "params": {{"on": "week_start", "with": "q2", "take": ["campaign", "discount_depth_pct"]}}}},
+  {{"id": "s1", "label": "Weekly NMV with the planned discount", "op": "join", "source": "q1", "params": {{"on": "week_start", "with": "q2", "take": ["campaign", "planned_discount_pct"]}}}},
   {{"id": "s2", "label": "Weekly NMV trend", "op": "trend", "source": "s1", "params": {{"time": "week_start", "value": "nmv"}}}}
+]
+```
+Example 2: monthly sales by category beside the monthly average of a file's weekly rows (the file's rows are aggregated by an aggregate step, then joined):
+```json
+"questions": [
+  {{"id": "q1", "purpose": "Sales by category, both months", "ask": "For Stores only, for every category: units and NMV in ₹ Crore for 2026-09-01 to 2026-09-30 (cur_units, cur_nmv) and for 2026-08-01 to 2026-08-31 (base_units, base_nmv), one row per category. {{{{STANDING_SCOPE}}}}.", "columns": ["category", "cur_units", "cur_nmv", "base_units", "base_nmv"]}},
+  {{"id": "q2", "purpose": "Weekly promotion plan rows", "ask": "From the festive promotion calendar: all rows of the weekly plan for the weeks starting 2026-08-03 to 2026-09-28 (week_start, category, planned_discount_pct).", "columns": ["week_start", "category", "planned_discount_pct"], "source": "sharepoint"}}
+],
+"steps": [
+  {{"id": "s1", "label": "Sales change by category", "op": "price_volume_mix", "source": "q1", "params": {{"key": "category", "cur_qty": "cur_units", "cur_value": "cur_nmv", "base_qty": "base_units", "base_value": "base_nmv"}}}},
+  {{"id": "s2", "label": "Average planned discount by category and month", "op": "aggregate", "source": "q2", "unit": "%", "params": {{"key": "category", "measures": {{"base_discount_pct": "mean:planned_discount_pct where week_start>=2026-08-03; week_start<=2026-08-31", "cur_discount_pct": "mean:planned_discount_pct where week_start>=2026-09-01; week_start<=2026-09-28"}}}}}},
+  {{"id": "s3", "label": "Sales with the planned discounts", "op": "join", "source": "q1", "params": {{"on": "category", "with": "s2", "take": ["base_discount_pct", "cur_discount_pct"]}}}}
 ]
 ```"""
 

@@ -4,6 +4,7 @@ import asyncio
 import datetime as dt
 import io
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -522,14 +523,164 @@ def profile_with(enabled):
     return base
 
 
-def test_the_scoper_is_told_about_sharepoint_only_when_it_is_enabled_and_the_example_is_a_valid_plan():
+def test_the_scoper_is_told_about_sharepoint_only_when_it_is_enabled_and_the_examples_are_valid_plans():
     from agents import data_profile
 
     off = data_profile.render("{{SOURCES}}", profile_with(False))
     assert "Only one data source is connected" in off and "sharepoint" not in off.lower().replace('"databricks"', "")
     on = data_profile.render("{{SOURCES}}\n{{SHAREPOINT_LIBRARY}}", profile_with(True))
     assert "Two data sources are connected" in on and "Plan.xlsx: a plan. one row per week. Columns: week_start, x." in on and "be careful" in on
-    fragment = on[on.index("```json") + 7:on.index("```", on.index("```json") + 7)]
-    full = json.loads("{" + fragment + ', "restated": "Did promotions explain laptop sales?", "kpi": "NMV", "current_label": "September 2026", "base_label": "August 2026"}')
-    assert AnalysisPlan.model_validate(full).steps[0].op == "join"  # the example in the prompt is accepted by the schema that will parse the reply
+    assert "THE SHAREPOINT AGENT ONLY READS" in on and '"aggregate" step' in on
+    fragments = re.findall(r"```json\n(.*?)\n```", on, flags=re.S)
+    assert len(fragments) == 2
+    for fragment in fragments:  # every example in the prompt is accepted by the schema that will parse the reply
+        full = json.loads("{" + fragment + ', "restated": "Did promotions explain laptop sales?", "kpi": "NMV", "current_label": "September 2026", "base_label": "August 2026"}')
+        plan = AnalysisPlan.model_validate(full)
+        assert any(s.op == "join" for s in plan.steps)
+    assert {s.op for s in AnalysisPlan.model_validate(json.loads("{" + fragments[1] + ', "restated": "Did promotions explain laptop sales?", "kpi": "NMV", "current_label": "x", "base_label": "y"}')).steps} == {"price_volume_mix", "aggregate", "join"}
     assert "{{" not in on
+
+
+# ---------------------------------------------------------------- aggregating a file's rows
+
+PROMO = [["2026-08-03", "Laptops", 8.0], ["2026-08-10", "Laptops", 12.0], ["2026-08-17", "Laptops", 0], ["2026-09-07", "Laptops", 14.0], ["2026-09-14", "Laptops", 5.0],
+         ["2026-08-03", "iPhones", 4.0], ["2026-08-10", "iPhones", 6.0], ["2026-09-07", "iPhones", 3.0], ["2026-08-03", "Cameras", None]]
+PROMO_COLUMNS = ["Week start", "Category", "Planned discount %"]
+
+
+def test_an_aggregate_makes_one_row_per_key_with_each_measure_over_its_own_rows():
+    from studio import analytics
+
+    rows = [{ledger.norm(c): v for c, v in zip(PROMO_COLUMNS, r)} for r in PROMO]
+    res = analytics.run("aggregate", rows, {"key": "category", "measures": {"base_discount": "mean:planned_discount_pct where week_start>=2026-08-01; week_start<=2026-08-31",
+                                                                           "cur_discount": "mean:planned_discount_pct where week_start>=2026-09-01; week_start<=2026-09-30",
+                                                                           "weeks": "count where week_start>=2026-08-01", "peak": "max:planned_discount_pct"}})
+    assert res.columns == ["category", "base_discount", "cur_discount", "weeks", "peak"]
+    by = {r[0]: r[1:] for r in res.rows}
+    assert by["Laptops"] == [6.6666666667, 9.5, 5.0, 14.0]  # mean of 8, 12, 0 in August; of 14 and 5 in September
+    assert by["iPhones"][:2] == [5.0, 3.0]
+    assert by["Cameras"][:2] == [None, None] and by["Cameras"][2] == 1.0 and any("no numbers" in n for n in res.notes)  # a key with no numbers is empty, not zero
+    assert res.outputs == {"groups": 3.0, "rows_used": 9.0}
+    only = analytics.run("aggregate", rows, {"key": "Category", "where": "category=laptops", "measures": {"n": "count", "total": "sum:planned_discount_pct"}})
+    assert only.rows == [["Laptops", 5.0, 39.0]]
+
+
+def test_an_aggregate_gives_a_key_with_no_matching_rows_a_count_of_zero():
+    from studio import analytics
+
+    rows = [{"zone": "MMR", "change": "Closed"}, {"zone": "Chennai", "change": "Opened"}, {"zone": "Chennai", "change": "Opened"}]
+    res = analytics.run("aggregate", rows, {"key": "zone", "measures": {"closures": "count where change=Closed", "openings": "count where change=Opened"}})
+    assert res.rows == [["Chennai", 0.0, 2.0], ["MMR", 1.0, 0.0]]
+
+
+def test_an_aggregate_says_what_to_fix():
+    from studio import analytics
+
+    rows = [{"zone": "MMR", "n": 1}]
+    with pytest.raises(analytics.AnalyticsError, match="not 'function:column"):
+        analytics.validate("aggregate", {"key": "zone", "measures": {"x": "median:n"}})
+    with pytest.raises(analytics.AnalyticsError, match="needs a column"):
+        analytics.validate("aggregate", {"key": "zone", "measures": {"x": "sum"}})
+    with pytest.raises(analytics.AnalyticsError, match="measures must be an object"):
+        analytics.validate("aggregate", {"key": "zone", "measures": "mean:n"})
+    with pytest.raises(analytics.AnalyticsError, match="column 'colour' not found. The result has: zone, n"):
+        analytics.run("aggregate", rows, {"key": "colour", "measures": {"x": "sum:n"}})
+    with pytest.raises(analytics.AnalyticsError, match="no row meets the condition"):
+        analytics.run("aggregate", rows, {"key": "zone", "where": "zone=Mars", "measures": {"x": "sum:n"}})
+    with pytest.raises(analytics.AnalyticsError, match="not of the form"):
+        analytics.run("aggregate", rows, {"key": "zone", "where": "just words", "measures": {"x": "sum:n"}})
+
+
+PLAN3 = {
+    "restated": "Did the planned promotions line up with the fall in sales by category between August and September?",
+    "kpi": "NMV (Stores)", "unit": "\u20b9 Cr", "current_label": "September 2026", "base_label": "August 2026", "basis": ["Stores only", "weeks that start in the month"],
+    "questions": [
+        {"id": "q1", "purpose": "sales by category", "ask": "For Stores only, by category: NMV in Rs Crore for 2026-09-01 to 2026-09-30 (cur_nmv) and 2026-08-01 to 2026-08-31 (base_nmv).", "columns": ["category", "cur_nmv", "base_nmv"]},
+        {"id": "q2", "purpose": "weekly promotion plan rows", "ask": "From the promotion calendar: all rows of the weekly plan for the weeks starting 2026-08-03 to 2026-09-14.",
+         "columns": ["week_start", "category", "planned_discount_pct"], "source": "sharepoint"},
+    ],
+    "steps": [
+        {"id": "s1", "label": "Sales change by category", "op": "contribution", "source": "q1", "params": {"key": "category", "cur": "cur_nmv", "base": "base_nmv"}},
+        {"id": "s3", "label": "Sales with the planned discounts", "op": "join", "source": "q1", "params": {"on": "category", "with": "s2", "take": ["base_discount_pct", "cur_discount_pct"]}},
+        {"id": "s2", "label": "Average planned discount by category and month", "op": "aggregate", "source": "q2", "unit": "%",
+         "params": {"key": "category", "measures": {"base_discount_pct": "mean:planned_discount_pct where week_start>=2026-08-03; week_start<=2026-08-31",
+                                                    "cur_discount_pct": "mean:planned_discount_pct where week_start>=2026-09-01; week_start<=2026-09-14"}}},
+    ],
+}
+CATEGORY_NMV = {"columns": ["category", "cur_nmv", "base_nmv"], "rows": [["Laptops", 3.0, 4.5], ["iPhones", 5.0, 5.5], ["Smart Phones", 2.0, 2.4]], "sql": "select c"}
+PROMO_ROWS = {"kind": "sharepoint", "columns": PROMO_COLUMNS, "origin": "Festive_Promo_Calendar_FY27.xlsx (sheet Weekly plan) \u00b7 modified 2026-07-24", "rows": PROMO}
+
+
+def mixed_deps(saved, promo=PROMO_ROWS):
+    async def ask_data(question, case_id):
+        rid = ledger.register_genie(case_id, {**CATEGORY_NMV, "question": question})
+        return f"| category | cur | base |\n|---|---|---|\n| Laptops | 3.0 | 4.5 |\n\nSource: Result {rid}."
+
+    async def ask_source(source, question, case_id):
+        rid = ledger.register_file(case_id, {**promo, "question": question})
+        return f"Source: Result {rid}; {promo['origin']}."
+
+    return runtime.Deps(ask_data=ask_data, ask_source=ask_source, worker=workers.call_worker, save_finding=lambda *a: saved.append(a), get_case=lambda cid: None)
+
+
+def contribution_findings(body):
+    steps = {s["step"]: s for s in body["evidence"]["steps"]}
+    f = steps["s1"]["figures"]
+    return {"findings": {"headline": f"Stores NMV changed by {f['total_change']['shown']}.", "drivers": [], "not_drivers": [], "basis": [], "caveats": [], "gaps": [], "next_questions": []}}
+
+
+def run_mixed(case, script, monkeypatch, promo=PROMO_ROWS):
+    monkeypatch.setattr(settings, "SOURCES", ("databricks", "sharepoint"))
+    workers.set_invoker(script)
+    ledger._cases.pop(case, None)
+    return asyncio.run(execute("analysis", "Did promotions line up with the fall?", case, mixed_deps([], promo)))
+
+
+def test_a_files_rows_are_aggregated_in_code_then_joined_to_the_data_space_even_when_the_plan_lists_the_join_first(monkeypatch):
+    script = Script(analysis_plan=PLAN3, analysis_findings=contribution_findings, review_analysis=ACCEPT)
+    run = run_mixed("C-a1", script, monkeypatch)
+    assert run.status == "done", run.error
+    assert "2 of 2 join/aggregate table(s) made" in run.stage("columns").summary
+    pack = next(b for r, t, b in script.calls if t == "analysis_findings")["evidence"]
+    agg = next(s for s in pack["steps"] if s["step"] == "s2")
+    assert agg["op"] == "aggregate" and agg["columns"] == ["category", "base_discount_pct", "cur_discount_pct"] and agg["figures"]["groups"]["shown"]
+    join = next(s for s in pack["steps"] if s["step"] == "s3")
+    assert join["columns"] == ["category", "cur_nmv", "base_nmv", "base_discount_pct", "cur_discount_pct"]
+    assert [r for r in join["rows"] if r[0] == "Laptops"] == [["Laptops", 3.0, 4.5, 6.67, 9.5]]  # (8 + 12 + 0) / 3 and (14 + 5) / 2, computed by code, not by a model
+    assert [r for r in join["rows"] if r[0] == "Smart Phones"][0][3:] == [None, None]  # the file has no row for it: empty, and the join says so
+    assert any("no match" in n for n in join["notes"])
+    assert not any(t == "fix_steps" for _r, t, _b in script.calls)
+
+
+def test_a_join_or_aggregate_that_names_a_column_the_file_does_not_have_goes_back_to_the_scoper_once(monkeypatch):
+    wrong = json.loads(json.dumps(PLAN3))
+    wrong["steps"][2]["params"]["measures"] = {"base_discount_pct": "mean:discount_depth where week_start>=2026-08-03; week_start<=2026-08-31",
+                                               "cur_discount_pct": "mean:discount_depth where week_start>=2026-09-01; week_start<=2026-09-14"}
+    fixed = {"steps": [PLAN3["steps"][2]]}
+    script = Script(analysis_plan=wrong, fix_steps=fixed, analysis_findings=contribution_findings, review_analysis=ACCEPT)
+    run = run_mixed("C-a2", script, monkeypatch)
+    assert run.status == "done", run.error
+    asked = next(b for _r, t, b in script.calls if t == "fix_steps")
+    assert "column 'discount_depth' not found. The result has: week_start, category, planned_discount" in asked["problems"][0] and asked["steps"][0]["id"] == "s2"
+    assert "Planned discount %" in asked["results"]["q2"]["columns"]  # the scoper sees the file's own heading
+    assert "2 of 2 join/aggregate table(s) made" in run.stage("columns").summary and sum(1 for _r, t, _b in script.calls if t == "fix_steps") == 1
+
+
+def test_a_failed_aggregate_makes_the_join_that_needs_it_fail_with_the_reason_and_the_run_goes_on(monkeypatch):
+    script = Script(analysis_plan=PLAN3, analysis_findings=contribution_findings, review_analysis=ACCEPT)
+    empty = {**PROMO_ROWS, "rows": [["2026-10-05", None, 1.0]]}  # a file whose key column is empty: there is nothing to group by
+    run = run_mixed("C-a3", script, monkeypatch, promo=empty)
+    assert run.status == "done", run.error
+    pack = next(b for r, t, b in script.calls if t == "analysis_findings")["evidence"]
+    assert "column 'category' is empty in every row" in next(s for s in pack["steps"] if s["step"] == "s2")["problem"]
+    assert "step s2 returned no data" in next(s for s in pack["steps"] if s["step"] == "s3")["problem"]
+    assert next(s for s in pack["steps"] if s["step"] == "s1")["figures"]  # what does not depend on the file still ran
+
+
+def test_a_hypothesis_cannot_be_tested_on_a_join_or_an_aggregate():
+    from harness.schemas import ResearchPlan
+
+    plan = json.loads(json.dumps(PLAN3))
+    plan.update({"sizing_step": "s1", "hypotheses": [{"id": "h1", "claim": "Promotions lifted sales", "step": "s2", "supports_if": "groups > 0"}]})
+    with pytest.raises(ValueError, match="test it with a decomposition"):
+        ResearchPlan.model_validate(plan)

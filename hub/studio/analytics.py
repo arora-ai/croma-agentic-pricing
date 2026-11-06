@@ -391,6 +391,108 @@ def materiality(change: float, base: float, min_rel_pct: float = 2.0, abs_floor:
                   {k: _r(v) for k, v in outputs.items()}, [], {"material": ok}, {"change": "value", "base": "value", "relative_change_pct": "pct", "material": "count"})
 
 
+# ---------------------------------------------------------------- aggregate (turns the rows of a file into one row per key)
+
+AGG_FUNCS = ("count", "sum", "mean", "min", "max")
+MEASURE = re.compile(r"^\s*(?P<fn>count|sum|mean|avg|min|max)\s*(?::\s*(?P<col>\S+?))?\s*(?:\s+where\s+(?P<where>.+?))?\s*$", re.I)
+WHERE_TERM = re.compile(r"^\s*(?P<col>.+?)\s*(?P<op>>=|<=|!=|=|>|<)\s*(?P<val>.+?)\s*$")
+
+
+def _resolve(name: str, available: list[str]) -> str:
+    """The column a name means: an exact match ignoring case and punctuation, else the only column that starts or ends with it (or it with the column)."""
+    n = norm(name)
+    if n in available:
+        return n
+    near = [c for c in available if n and c and (c.startswith(n) or n.startswith(c) or c.endswith(n) or n.endswith(c))]
+    if len(near) == 1:
+        return near[0]
+    raise AnalyticsError(f"column '{name}' not found. The result has: {', '.join(available)}")
+
+
+def _compare(cell: Any, op: str, want: str) -> bool:
+    if cell is None:
+        return op == "!="
+    try:
+        a, b = float(cell), float(want.replace(",", ""))
+    except (TypeError, ValueError):
+        a, b = str(cell).strip().lower(), want.lower()
+    return {"=": a == b, "!=": a != b, ">": a > b, ">=": a >= b, "<": a < b, "<=": a <= b}[op]
+
+
+def _where(spec: str, available: list[str]) -> Callable[[dict], bool]:
+    """A row test from 'category=Laptops; week_start>=2026-08-03' (terms joined with ';', all must hold; text ignores case, numbers compare as numbers, ISO dates as dates)."""
+    terms = []
+    for t in re.split(r"[;\n]", spec or ""):
+        if not t.strip():
+            continue
+        m = WHERE_TERM.match(t)
+        if not m:
+            raise AnalyticsError(f"the condition '{t.strip()}' is not of the form column=value (operators: = != > >= < <=; join conditions with ';')")
+        terms.append((_resolve(m["col"], available), m["op"], m["val"].strip().strip("'\"")))
+    return lambda row: all(_compare(row.get(c), op, v) for c, op, v in terms)
+
+
+def parse_measures(measures: Any) -> dict[str, tuple[str, str | None, str]]:
+    """{'cur_discount': 'mean:planned_discount_pct where week_start>=2026-09-01'} as {name: (function, column, condition)}, with a message that says what to fix."""
+    example = '{"cur_discount": "mean:planned_discount_pct where week_start>=2026-09-01; week_start<=2026-09-28", "events": "count where change=Closed"}'
+    if not isinstance(measures, dict) or not measures:
+        raise AnalyticsError(f"aggregate: measures must be an object of output name to 'function:column [where condition]', for example {example}")
+    out = {}
+    for name, spec in measures.items():
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,40}", str(name)):
+            raise AnalyticsError(f"aggregate: the measure name '{name}' must be a short lower_snake_case name")
+        m = MEASURE.match(str(spec))
+        if not m:
+            raise AnalyticsError(f"aggregate: measure {name} is '{spec}', which is not 'function:column [where condition]' with a function of {', '.join(AGG_FUNCS)} (for example {example})")
+        fn = "mean" if m["fn"].lower() == "avg" else m["fn"].lower()
+        if fn != "count" and not m["col"]:
+            raise AnalyticsError(f"aggregate: measure {name} needs a column: write '{fn}:<column>'")
+        out[str(name)] = (fn, m["col"], (m["where"] or "").strip())
+    return out
+
+
+def aggregate(rows: list[dict], key: str, measures: dict, where: str = "") -> Result:
+    """One row per key from the rows of a file or table: count, sum, mean, min or max of a column, each over the rows that meet its own condition. The keys come from every
+    row (so a zone with no events still gets a row, with a count of 0); a mean or sum over no numbers is empty, not zero."""
+    if not rows:
+        raise AnalyticsError("the result has no rows to aggregate")
+    available = list(rows[0])
+    key_col = _resolve(key, available)
+    specs = parse_measures(measures)
+    keep = _where(where, available)
+    kept = [r for r in rows if keep(r)]
+    if not kept:
+        raise AnalyticsError(f"no row meets the condition '{where}'")
+    order: dict[str, Any] = {}
+    for r in rows if not where else kept:
+        label = r.get(key_col)
+        if label is not None and str(label).strip():
+            order.setdefault(str(label).strip().lower(), label)
+    if not order:
+        raise AnalyticsError(f"column '{key}' is empty in every row")
+    compiled = {name: (fn, _resolve(col, available) if col else None, _where(cond, available)) for name, (fn, col, cond) in specs.items()}
+    table: list[list] = []
+    notes: list[str] = []
+    empty: dict[str, int] = {}
+    for gk, label in sorted(order.items(), key=lambda kv: str(kv[1])):
+        mine = [r for r in kept if r.get(key_col) is not None and str(r[key_col]).strip().lower() == gk]
+        row: list = [label]
+        for name, (fn, col, test) in compiled.items():
+            sel = [r for r in mine if test(r)]
+            if fn == "count":
+                v = float(len([r for r in sel if col is None or r.get(col) not in (None, "")]))
+            else:
+                nums = [x for x in (_f(r.get(col)) for r in sel) if x is not None]
+                v = None if not nums else (sum(nums) if fn == "sum" else sum(nums) / len(nums) if fn == "mean" else min(nums) if fn == "min" else max(nums))
+                if v is None:
+                    empty[name] = empty.get(name, 0) + 1
+            row.append(_r(v))
+        table.append(row)
+    for name, n in empty.items():
+        notes.append(f"{n} of {len(table)} group(s) had no numbers to {specs[name][0]} for {name}, so it is empty for them.")
+    return Result("aggregate", [key, *compiled], table, {"groups": float(len(table)), "rows_used": float(len(kept))}, notes, {}, {"groups": "count", "rows_used": "count"})
+
+
 # ---------------------------------------------------------------- registry
 
 @dataclass
@@ -438,10 +540,17 @@ OPS: dict[str, OpSpec] = {s.name: s for s in [
     OpSpec("materiality", materiality, "Is a change big enough, against the base it applies to, to be called a driver? Params change and base are cell references or numbers.",
            ["change", "base"], {"min_rel_pct": 2.0, "abs_floor": 0.0}, ["change", "base", "relative_change_pct", "material"], scalar=True),
     OpSpec("join", None, "Puts two questions' results side by side on a shared key, for example weekly sales from the data space with the promotion planned that week from a SharePoint "
-           "file, so the next steps can analyse them together. source is the question whose rows are kept (it holds the measure), 'with' is the id of the other question, 'on' the key column "
-           "in the source, 'right_on' the key column in the other result when it is named differently, 'take' the other result's columns to add. The other result must have one row per "
-           "key. The outcome is a table that later steps can read by writing this step's id as their source (for example 'source': 's1').",
+           "file, so the next steps can analyse them together. source is the question whose rows are kept (it holds the measure), 'with' is the id of the other question (or of an aggregate "
+           "step), 'on' the key column in the source, 'right_on' the key column in the other result when it is named differently, 'take' the other result's columns to add. The other result "
+           "must have one row per key. The outcome is a table that later steps can read by writing this step's id as their source (for example 'source': 's1').",
            ["on", "with"], {"right_on": "", "take": [], "how": "left"}, [], columns=("on",)),
+    OpSpec("aggregate", aggregate, "Turns the ROWS of a file (what a SharePoint question returns: one row per week, campaign, store change ...) into one row per key, by counting, summing, "
+           "averaging, or taking the min or max of a column, each over the rows that meet its own condition. Use it before a join, to make the file one row per join key. 'key' is the "
+           "column to group by; 'measures' is an object of output name to 'function:column [where condition]' (functions count, sum, mean, min, max; conditions like "
+           "'week_start>=2026-09-01; week_start<=2026-09-28', joined with ';'), for example {\"cur_discount_pct\": \"mean:planned_discount_pct where week_start>=2026-09-01; "
+           "week_start<=2026-09-28\", \"closures\": \"count where change=Closed\"}; 'where' is an optional condition on all rows first. A key with no matching rows still gets a row "
+           "(a count of 0, a mean that is empty). The harness never asks a SharePoint agent to calculate: this step does it, exactly.",
+           ["key", "measures"], {"where": ""}, ["groups", "rows_used"], columns=("key",)),
 ]}
 
 
@@ -457,6 +566,8 @@ def validate(op: str, params: dict) -> dict:
     missing = [p for p in spec.required if params.get(p) in (None, "")]
     if missing:
         raise AnalyticsError(f"{op}: missing parameter(s) {missing}. Required: {spec.required}")
+    if op == "aggregate":
+        parse_measures(params["measures"])
     return {**spec.optional, **params}
 
 
