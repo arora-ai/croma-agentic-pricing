@@ -9,7 +9,7 @@ Everything is run from a laptop with PowerShell and Python. Nothing is installed
  Laptop (az login)                       Azure (Croma tenant)
  ------------------                      -----------------------------------------------
  infra\deploy_hub.ps1   --builds-->      Azure Container Registry  --> Container App "croma-tools-hub"  (the hub)
- agents.deploy_agents   --creates-->     Microsoft Foundry project: 11 agents + memory store, calling the hub as MCP tools
+ agents.deploy_agents   --creates-->     Microsoft Foundry project: 15 agents + memory store, calling the hub as MCP tools
  ui\run.ps1  (localhost:8000)  <------>  Foundry agents (CX), hub, and your data layer (Databricks Genie or your own backend)
 ```
 
@@ -163,7 +163,7 @@ This file is what turns the generic agents into Croma's. The agents treat it as 
 Then validate it. This renders every agent prompt and fails with a clear message if anything is unfilled:
 
 ```powershell
-.\.venv\Scripts\python -m agents.deploy_agents --check        # expect: OK: 14 agents render from config/data_profile.json
+.\.venv\Scripts\python -m agents.deploy_agents --check        # expect: OK: 15 agents render from config/data_profile.json
 ```
 
 ## 4. Deploy the hub
@@ -236,6 +236,10 @@ Follow **[`integrations/genie/README.md`](../integrations/genie/README.md)** for
 4. Re-run `.\.venv\Scripts\python -m agents.deploy_agents` if you changed `data_profile.json`.
 
 For a quick test before the identity is set up, `AuthMode = "token"` with `$env:DATABRICKS_TOKEN` (a personal access token) set when you run `deploy_hub.ps1` works too. It acts as one person and expires, so use it only to prove the plumbing.
+
+### 6.1 Optional: SharePoint as a second source
+
+Analysis and Research can also draw on a SharePoint document library (promotion calendars, price lists, store changes, policies) next to Databricks. It is off by default, and it is a separate decision from connecting the data: follow **[`SHAREPOINT.md`](SHAREPOINT.md)**. In outline: describe the library in the `sharepoint` block of `config\data_profile.json`, set `$Cfg.SharePoint` in `infra\config.ps1` (`Backend = "graph"` with the site URL, or `"folder"` to try it on the bundled sample files), give the hub's identity read access to the one site, re-run `deploy_hub.ps1` and `python -m agents.deploy_agents`.
 
 ## 7. Run the chat UI on the laptop
 

@@ -25,6 +25,8 @@ function workingLine(calls: Call[]): string {
   const last = [...open].reverse().find((c) => c.node !== "cx") ?? open[open.length - 1];
   if (!last) return "Understanding your request";
   if (last.node === "genie") return "Querying the data";
+  if (last.node === "files") return "Reading SharePoint files";
+  if (last.node === "sharepoint") return "SharePoint agent is finding files";
   if (last.node === "memory") return "Recalling your preferences";
   if (last.node === "context") return "Updating the case notes";
   if (last.node === "studio") return "Report studio is working on the evidence";
@@ -86,6 +88,7 @@ function Bubble({ m, calls, stages, running }: { m: Message; calls: Call[]; stag
         {m.status === "done" && m.seconds !== undefined && (
           <div className="meta">
             {fmtSeconds(m.seconds)} · {calls.filter((c) => c.kind === "agent" && c.node !== "cx").length} agent calls · {calls.filter((c) => c.node === "genie").length} data queries
+            {calls.some((c) => c.node === "files") && ` · ${calls.filter((c) => c.node === "files" && c.tool === "read_sharepoint_file").length} SharePoint files read`}
             {calls.some((c) => c.node === "memory") && " · used your saved preferences"}
           </div>
         )}

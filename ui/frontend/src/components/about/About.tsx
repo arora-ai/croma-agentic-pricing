@@ -17,7 +17,7 @@ type Who = "code" | "worker" | "data" | "agent";
 const WHO: Record<Who, { label: string; color: string }> = {
   code: { label: "Code", color: "#475569" },
   worker: { label: "Model worker", color: "#6B4FBB" },
-  data: { label: "Data agent to Genie", color: "#B45309" },
+  data: { label: "Data and SharePoint agents", color: "#B45309" },
   agent: { label: "Agent", color: "#BE185D" },
 };
 
@@ -26,7 +26,7 @@ interface Lane { id: string; name: string; tag: string; blurb: string; steps: St
 
 const ANALYSIS_STEPS: Step[] = [
   { who: "worker", name: "Plan", note: "The Scoper writes a typed plan: questions, steps, materiality" },
-  { who: "data", name: "Get data", note: "Governed questions in parallel, one ledger result each" },
+  { who: "data", name: "Get data", note: "Governed questions in parallel to each source the plan names (Databricks, and SharePoint when connected), one ledger result each; plans can join the two" },
   { who: "code", name: "Compute", note: "Rate versus mix, price versus volume versus mix, contribution, reconcile" },
 ];
 const CONCLUDE_STEPS: Step[] = [
@@ -71,7 +71,7 @@ const FLOW = [
   ["Chat API", "Takes the caller's identity only from the gateway and keeps that user's history and memory scope."],
   ["Plan check, then the journey", "The CX agent restates the question, asks only what changes the answer, shows its plan and waits for \"go ahead\" or a change. Then it calls Lookup, Analysis, Research or Reporting."],
   ["Tool gateway into the hub", "The call reaches the hub's agent bridge through API Management: allow-listed routes, a revocable key, a trace per tool."],
-  ["Governed data", "Inside a harness, each Data agent question goes through the data tool and the data gateway to Genie. The SQL runs on Unity Catalog tables."],
+  ["Governed data", "Inside a harness, each question goes to the source the plan names: through the Data agent, the data tool and the data gateway to Genie (SQL on Unity Catalog tables), or through the SharePoint agent and tools to a file in the library. Either way the result is stored in the evidence ledger."],
   ["Answer with its evidence", "Code computes and traces every figure to the ledger, the Critic challenges, and the brief streams back with its evidence line. Reports open as Word and HTML."],
   ["Everything is traced", "Gateway logs per user and per tool, hub events and harness stages feed Log Analytics and the admin view."],
 ];

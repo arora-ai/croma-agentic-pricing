@@ -6,6 +6,7 @@ SHAREPOINT_BACKEND=folder. Everything in it is invented; none of it is Croma dat
 from __future__ import annotations
 
 import datetime as dt
+import json
 import sys
 from pathlib import Path
 
@@ -160,6 +161,10 @@ def main() -> None:
     network_changes()
     policy()
     zonal_notes()
+    # what a library would show as each file's last modified date (the files' own dates are the day they were generated or copied)
+    (OUT / "_modified.json").write_text(json.dumps({
+        "Planning/Festive_Promo_Calendar_FY27.xlsx": "2026-07-24", "Planning/Store_Network_Changes_FY27.xlsx": "2026-09-22", "Pricing/Competitor_Price_Index_Sep2026.csv": "2026-10-13",
+        "Policies/Markdown_and_Promotion_Policy_FY27.docx": "2026-04-02", "Notes/Zonal_Review_Notes_Sep2026.docx": "2026-10-05"}, indent=2) + "\n", encoding="utf-8")
     for p in sorted(OUT.rglob("*")):
         if p.is_file():
             print(f"{p.relative_to(OUT).as_posix():60s} {p.stat().st_size:>7} bytes")

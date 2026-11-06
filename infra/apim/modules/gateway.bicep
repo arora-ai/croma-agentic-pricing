@@ -397,7 +397,7 @@ resource toolsApi 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
   }
 }
 
-var toolEndpoints = [ 'genie', 'agents', 'context', 'studio' ]
+var toolEndpoints = [ 'genie', 'sharepoint', 'agents', 'context', 'studio' ]
 var toolOperations = flatten(map(toolEndpoints, endpoint => map([ 'POST', 'GET', 'DELETE' ], method => {
   id: '${endpoint}-${toLower(method)}'
   method: method

@@ -94,6 +94,20 @@ def test_a_document_becomes_passages_with_their_headings_and_tables():
     assert md == [("Chennai", "Two stores had short hours."), ("Kolkata", "A refit starts on 14 September.")]
 
 
+def test_the_pages_of_a_pdf_and_the_slides_of_a_deck_are_read_as_passages():
+    from pptx import Presentation
+
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[5])
+    slide.shapes.title.text = "Festive plan: Laptops capped at 14%"
+    buf = io.BytesIO()
+    deck.save(buf)
+    passages = parse.read_passages("plan.pptx", buf.getvalue())
+    assert passages == [("plan.pptx, slide 1", "Festive plan: Laptops capped at 14%")]
+    with pytest.raises(parse.ParseError, match="not a PDF"):
+        parse.read_passages("scan.pdf", b"not a pdf")
+
+
 def test_the_most_relevant_passages_are_picked_in_reading_order():
     passages = [(f"s{i}", f"text {i} about {'laptops caps' if i in (3, 7) else 'other things'}") for i in range(10)]
     picked = parse.pick_passages(passages, "laptops caps", 2)
@@ -195,6 +209,7 @@ def test_the_folder_backend_finds_files_by_name_and_by_what_is_inside_them():
     assert {f["kind"] for f in everything} == {"table", "document"} and len(everything) == 5
     entry, data = asyncio.run(b.fetch("Pricing/Competitor_Price_Index_Sep2026.csv"))
     assert entry["name"].endswith(".csv") and data.startswith(b"Week start")
+    assert entry["modified"] == "2026-10-13"  # the date the library reports (from _modified.json), not the day the file was copied
     with pytest.raises(SharePointError, match="no file with id"):
         asyncio.run(b.fetch("../../hub/settings.py"))
 

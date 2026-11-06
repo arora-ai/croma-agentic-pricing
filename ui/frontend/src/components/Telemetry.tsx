@@ -26,11 +26,13 @@ function Stats({ calls, running }: { calls: Call[]; running: boolean }) {
   const elapsed = cx ? ((cx.end ?? now) - cx.start) / 1000 : 0;
   const agents = calls.filter((c) => c.kind === "agent" && c.node !== "cx").length;
   const queries = calls.filter((c) => c.node === "genie").length;
+  const fileReads = calls.filter((c) => c.node === "files" && c.tool === "read_sharepoint_file").length;
   const tokens = calls.reduce((n, c) => n + (c.tokensIn ?? 0) + (c.tokensOut ?? 0), 0);
   const items: [string, string][] = [
     ["Elapsed", cx ? fmtSeconds(elapsed) : "–"],
     ["Agent calls", String(agents)],
     ["Data queries", String(queries)],
+    ...(fileReads > 0 ? [["Files read", String(fileReads)] as [string, string]] : []),
     ["Tokens", tokens ? (tokens > 9999 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens)) : "–"],
   ];
   return (
@@ -71,6 +73,37 @@ function Detail({ c }: { c: Call }) {
               <thead><tr>{cols.map((x) => <th key={x}>{x}</th>)}</tr></thead>
               <tbody>{rows.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j}>{String(v)}</td>)}</tr>)}</tbody>
             </table></div>
+          </>
+        )}
+        {d.error && <div className="error-note">{d.error}</div>}
+      </div>
+    );
+  }
+  if (c.node === "files") {
+    const d = c.detail ?? {};
+    const rows: unknown[][] = d.rows ?? [];
+    const cols: string[] = d.columns ?? [];
+    return (
+      <div className="detail">
+        {c.tool === "search_sharepoint" ? (
+          <>
+            <label>Search</label><div className="text">{c.args?.query || "(list the library)"}</div>
+            {(d.files ?? []).length > 0 && <><label>Files found</label><ul className="files">{(d.files as string[]).map((f) => <li key={f}>{f}</li>)}</ul></>}
+          </>
+        ) : (
+          <>
+            <label>File</label><div className="text">{d.file}{d.sheet ? ` · sheet ${d.sheet}` : ""}{d.focus ? ` · about ${d.focus}` : ""}</div>
+            {d.origin && <><label>Source</label><div className="text">{d.origin}</div></>}
+            {d.filter && <><label>Filter</label><pre className="code">{d.filter}</pre></>}
+            {rows.length > 0 && (
+              <>
+                <label>{d.kind === "document" ? "Passages" : "Rows"} · {d.row_count}{d.truncated ? " (capped)" : ""}</label>
+                <div className="mini-table"><table>
+                  <thead><tr>{cols.map((x) => <th key={x}>{x}</th>)}</tr></thead>
+                  <tbody>{rows.map((r, i) => <tr key={i}>{r.map((v, j) => <td key={j}>{String(v)}</td>)}</tr>)}</tbody>
+                </table></div>
+              </>
+            )}
           </>
         )}
         {d.error && <div className="error-note">{d.error}</div>}

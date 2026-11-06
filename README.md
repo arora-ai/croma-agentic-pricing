@@ -18,9 +18,9 @@ produce a designed, audited business report (Word, with charts and an evidence a
    |            |             |              Planner, Insight, Strategist, Writer, Reviewer
    |____________|_____________|                  |  \_ report studio: evidence ledger, number audit, DOCX renderer
                 |                                |
-            Data agent  (the only agent that touches data)
-                |
-        hub data tool  ->  backend: Databricks Genie | your function | stub
+            Data agent  (the only agent that touches the data space)         SharePoint agent  (the only agent that touches files; optional)
+                |                                                                |
+        hub data tool  ->  backend: Databricks Genie | your function | stub      hub SharePoint tools  ->  Microsoft Graph | sample folder
 ```
 
 - **CX** talks the request through before any work starts. It says back what it understood, asks only the few questions whose answers would change the analysis
@@ -35,6 +35,8 @@ produce a designed, audited business report (Word, with charts and an evidence a
   an id in an **evidence ledger**; tables and charts are drawn from ledger rows, never typed by a model; a **number audit** traces every figure in the text to a result or a recorded
   calculation and **blocks publishing** while any is untraced. See [The report studio](#the-report-studio).
 - **Genie** (or your own backend) is behind a single tool on the hub, so the data layer can be swapped without touching the agents. See [`integrations/genie/README.md`](integrations/genie/README.md).
+- **SharePoint** can be a second source for Analysis and Research (off by default): the Scoper plans each question against Databricks or a SharePoint library (plans, calendars, price lists,
+  policies), the harness asks both in parallel, and a `join` step lets the analytics run on the two together. See [`docs/SHAREPOINT.md`](docs/SHAREPOINT.md).
 
 The full target architecture (including later phases such as API gateways, Teams and scheduled nudges) is in [`docs/architecture.md`](docs/architecture.md).
 
@@ -44,14 +46,14 @@ The full target architecture (including later phases such as API gateways, Teams
 |---|---|
 | `agents/` | The Foundry agents: instructions (`prompts/*.md`), tool wiring and models (`definitions.py`), deploy and memory scripts, and `data_profile.py` |
 | `config/` | `data_profile.example.json`: describes your data space to the agents (copy to `data_profile.json`) |
-| `hub/` | The tools hub, one container with four MCP servers: data tool, agent bridge, case context, report studio. `hub/backends/` holds the data backends |
+| `hub/` | The tools hub, one container with five MCP servers: data tool, SharePoint tools, agent bridge, case context, report studio. `hub/backends/` holds the data backends, `hub/sharepoint/` the SharePoint backends, file parsing and a sample library |
 | `hub/harness/` | v2: the Analysis and Research harnesses: runtime, pipeline, typed worker contracts, token governor |
 | `hub/studio/` | The report studio: ledger, calc, audit, renderers, `playbook.md`, and the deterministic analytics engine (`analytics.py`, `analyze.py`) |
 | `integrations/genie/` | How to connect your Genie space or data agent, an example custom backend, and `try_question.py` |
 | `infra/` | PowerShell deploy scripts and `config.example.ps1`. `infra/apim/` is the optional Azure API Management layer (Bicep, policies, deploy, test and teardown scripts) |
 | `ui/` | The chat UI: FastAPI backend and React front end, with an admin pane (agent network, telemetry, case file, memory) and an "About this app" tab (architecture diagram, sample report; its Save as PDF button prints a shareable overview). `ui/Dockerfile` runs it as a container app |
 | `tests/` | Unit tests (no Azure needed) and small tools for testing a live deployment |
-| `docs/` | `DEPLOYMENT.md` (the step-by-step deployment runbook), `V2.md` (the harness design and how v2 runs next to v1), `APIM.md` (the three API gateways), `architecture.md` (diagrams) |
+| `docs/` | `DEPLOYMENT.md` (the step-by-step deployment runbook), `V2.md` (the harness design and how v2 runs next to v1), `APIM.md` (the three API gateways), `SHAREPOINT.md` (SharePoint as a second data source), `architecture.md` (diagrams) |
 
 ## Prerequisites
 
@@ -106,7 +108,7 @@ Follow [`integrations/genie/README.md`](integrations/genie/README.md). In short:
 | `config/data_profile.json` | Date coverage, fiscal year, zones, channels, categories, and planning facts, rendered into the agent prompts at deploy time |
 | `.env` | `HUB_URL`, `HUB_API_KEY`, `FOUNDRY_PROJECT_ENDPOINT`: written by `deploy_hub.ps1`. Secret, git-ignored. See `.env.example` |
 | Shell environment at agent deploy | `NAME_PREFIX`, `AGENT_MODEL`, `AGENT_REASONING_EFFORT`, `REPORT_MODEL`, `REPORT_EFFORT_<ROLE>`, `REPORT_MODEL_<ROLE>`, `WORKER_MODEL`, `WORKER_MODEL_<ROLE>`, `WORKER_EFFORT_<ROLE>`, `MEMORY_STORE`, `MEMORY_SCOPE` |
-| Hub container app settings | `NAME_PREFIX`, `HARNESS_MODE`, `GENIE_BACKEND`, `DATABRICKS_HOST`, `GENIE_SPACE_ID`, `DATABRICKS_AUTH`, `CUSTOM_BACKEND`, `GENIE_TOOL_DESCRIPTION`, `GENIE_MAX_ROWS`, `DATA_PARALLELISM`, `AGENT_CALL_TIMEOUT_S`, `WORKER_TPM_BUDGET`, `WORKER_PARALLELISM` (set from `infra/config.ps1`; the full list with defaults is in [`docs/V2.md`](docs/V2.md)) |
+| Hub container app settings | `NAME_PREFIX`, `HARNESS_MODE`, `GENIE_BACKEND`, `DATABRICKS_HOST`, `GENIE_SPACE_ID`, `DATABRICKS_AUTH`, `CUSTOM_BACKEND`, `GENIE_TOOL_DESCRIPTION`, `GENIE_MAX_ROWS`, `DATA_PARALLELISM`, `SHAREPOINT_BACKEND` and the other `SHAREPOINT_*` settings ([`docs/SHAREPOINT.md`](docs/SHAREPOINT.md)), `AGENT_CALL_TIMEOUT_S`, `WORKER_TPM_BUDGET`, `WORKER_PARALLELISM` (set from `infra/config.ps1`; the full list with defaults is in [`docs/V2.md`](docs/V2.md)) |
 
 ## The report studio
 

@@ -16,6 +16,8 @@ const POS: Record<Placed, { x: number; y: number; w?: number }> = {
   reporting: { x: 386, y: 150 },
   data: { x: 221, y: 258 },
   genie: { x: 221, y: 366 },
+  sharepoint: { x: 336, y: 258 },
+  files: { x: 336, y: 366 },
   planner: { x: 560, y: 112, w: TW },
   insight: { x: 560, y: 172, w: TW },
   strategist: { x: 560, y: 232, w: TW },
@@ -34,6 +36,9 @@ const EDGES: { from: Placed; to: Placed; dashed?: boolean }[] = [
   { from: "analysis", to: "data" },
   { from: "reporting", to: "data" },
   { from: "data", to: "genie" },
+  { from: "research", to: "sharepoint" },
+  { from: "analysis", to: "sharepoint" },
+  { from: "sharepoint", to: "files" },
   { from: "cx", to: "context", dashed: true },
   { from: "cx", to: "memory", dashed: true },
   { from: "reporting", to: "planner" },
@@ -72,7 +77,7 @@ function edgePath(from: Placed, to: Placed): string {
   return `M ${a.x} ${y1} C ${a.x} ${mid}, ${b.x} ${mid}, ${b.x} ${y2}`;
 }
 
-export function Topology({ calls, running, genieBackend, stages = [] }: { calls: Call[]; running: boolean; genieBackend?: string; stages?: StageRow[] }) {
+export function Topology({ calls, running, genieBackend, sharepointBackend, stages = [] }: { calls: Call[]; running: boolean; genieBackend?: string; sharepointBackend?: string; stages?: StageRow[] }) {
   const { open, used, count, activeEdges, workerOpen, workerUsed } = useMemo(() => {
     const open = new Map<NodeKey, number>();
     const used = new Set<NodeKey>();
@@ -101,8 +106,14 @@ export function Topology({ calls, running, genieBackend, stages = [] }: { calls:
     return row ? HARNESS_STEPS.find((s) => s.stages.includes(row.stage))?.label.toLowerCase() : undefined;
   };
 
+  const SP_NODES = new Set<NodeKey>(["sharepoint", "files"]);
+  // SharePoint appears in the network only when the hub has it connected (or a run used it), so the view is unchanged without it
+  const showSp = (!!sharepointBackend && sharepointBackend !== "off") || used.has("sharepoint") || used.has("files");
+  const nodes = (Object.keys(POS) as Placed[]).filter((k) => showSp || !SP_NODES.has(k));
+  const edges = EDGES.filter((e) => showSp || !(SP_NODES.has(e.from) || SP_NODES.has(e.to)));
+
   const status = (k: NodeKey) => {
-    if (open.get(k)) return k === "genie" ? "querying" : k === "context" || k === "studio" ? "writing" : k === "memory" ? "recalling" : k === "data" ? "fetching" : "working";
+    if (open.get(k)) return k === "genie" || k === "files" ? "querying" : k === "context" || k === "studio" ? "writing" : k === "memory" ? "recalling" : k === "data" || k === "sharepoint" ? "fetching" : "working";
     return used.has(k) ? "done" : "idle";
   };
 
@@ -110,7 +121,7 @@ export function Topology({ calls, running, genieBackend, stages = [] }: { calls:
     <svg className="topology" viewBox="0 0 640 450" role="img" aria-label="Agent network">
       <rect className="team-box" x={496} y={62} width={128} height={332} rx={14} />
       <text className="team-label" x={510} y={80}>REPORT TEAM</text>
-      {EDGES.map((e) => {
+      {edges.map((e) => {
         const key = `${e.from}>${e.to}`;
         const on = activeEdges.has(key);
         const usedEdge = used.has(e.to) && used.has(e.from);
@@ -121,7 +132,7 @@ export function Topology({ calls, running, genieBackend, stages = [] }: { calls:
           </g>
         );
       })}
-      {(Object.keys(POS) as Placed[]).map((k) => {
+      {nodes.map((k) => {
         const p = POS[k];
         const w = p.w ?? W;
         const st = status(k);
@@ -133,7 +144,7 @@ export function Topology({ calls, running, genieBackend, stages = [] }: { calls:
             <rect className="box" width={w} height={H} rx={12} />
             <circle className="dot" cx={15} cy={H / 2} r={4.5} />
             <text className="label" x={28} y={H / 2 - 3}>{NODES[k].label}</text>
-            <text className="sub" x={28} y={H / 2 + 12}>{open.get(k) ? `${harness ? stageLabel(k) ?? st : st}…` : k === "genie" ? ({ databricks: "Databricks", custom: "Custom", stub: "Not connected" } as Record<string, string>)[genieBackend ?? ""] ?? "Data" : NODES[k].sub.split(" · ")[0]}</text>
+            <text className="sub" x={28} y={H / 2 + 12}>{open.get(k) ? `${harness ? stageLabel(k) ?? st : st}…` : k === "genie" ? ({ databricks: "Databricks", custom: "Custom", stub: "Not connected" } as Record<string, string>)[genieBackend ?? ""] ?? "Data" : k === "files" ? ({ graph: "SharePoint", folder: "Sample library", off: "Not connected" } as Record<string, string>)[sharepointBackend ?? ""] ?? "Library" : NODES[k].sub.split(" · ")[0]}</text>
             {harness && WORKERS.map((wk, i) => {
               const key = `${k}>${wk}`;
               return (

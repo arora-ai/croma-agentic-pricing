@@ -128,22 +128,24 @@ export const MAIN: Panel[] = [
           detail: "Five agents on the deep-reasoning model. The Planner designs the report, Insight finds the drivers (with the analytics engine as a tool), the Strategist writes sized and owned actions, Writers draft sections, the Reviewer critiques independently. They work through the report studio, which keeps the evidence.", where: "agents/prompts/{planner,insight,strategist,writer,reviewer}.md" },
       ] },
       { h: 62, nodes: [
-        { id: "data", title: "Data agent · the only door to data", lines: ["adds the standing scope and units · checks the SQL"], tone: "dataAgent", flex: 1.5, v2: true,
-          detail: "The single path to data. It frames the question for Genie, adds the standing scope and the unit, calls the data tool, checks that the SQL applied the scope and returns the rows with their source. It does not analyse or recommend.", where: "agents/prompts/data.md" },
-        { id: "workers", title: "Harness workers · no tools", lines: ["Scoper · Analyst · Critic", "one typed JSON message in, one out"], tone: "worker", badge: "MODEL", flex: 1.3, v2: true,
-          detail: "Three Foundry agents with no tools. The harness runtime calls them with one JSON message and expects one typed JSON reply; a reply that does not fit the schema is sent back once with the exact problem. The Scoper plans, the Analyst writes only from engine figures, the Critic challenges.", where: "agents/prompts/{scoper,analyst,critic}.md · hub/harness/workers.py" },
+        { id: "data", title: "Data agent · only door to data", lines: ["adds the standing scope and units · checks the SQL"], tone: "dataAgent", flex: 1.3, v2: true,
+          detail: "The single path to the data space. It frames the question for Genie, adds the standing scope and the unit, calls the data tool, checks that the SQL applied the scope and returns the rows with their source. It does not analyse or recommend.", where: "agents/prompts/data.md" },
+        { id: "sharepoint", title: "SharePoint agent · only door to files", lines: ["finds and reads files", "tables or passages, with their source"], tone: "dataAgent", flex: 1.3, v2: true, badge: "NEW",
+          detail: "The single path to Croma's SharePoint library. It searches for the right file (preferring the latest version), reads the sheet or the passages that were asked for, can filter rows without computing, and returns the content with the file, sheet and last modified date. It never analyses and never invents. Off unless the hub has SharePoint connected.", where: "agents/prompts/sharepoint.md" },
+        { id: "workers", title: "Harness workers · no tools", lines: ["Scoper · Analyst · Critic", "one typed JSON message in, one out"], tone: "worker", badge: "MODEL", flex: 1.2, v2: true,
+          detail: "Three Foundry agents with no tools. The harness runtime calls them with one JSON message and expects one typed JSON reply; a reply that does not fit the schema is sent back once with the exact problem. The Scoper plans (including which source answers each question), the Analyst writes only from engine figures, the Critic challenges.", where: "agents/prompts/{scoper,analyst,critic}.md · hub/harness/workers.py" },
       ] },
     ],
   },
   {
     id: "g2", title: "Tool gateway · Azure API Management", tag: "AI gateway", v2: true, tone: "gateway",
-    detail: "Azure API Management between the agents and the hub's MCP servers. Only the four MCP routes are exposed; each consumer has its own revocable subscription key, and the agents never hold the hub's own key; every tool call is traced with its tool name. Foundry follows the connection's target, so the agents themselves needed no change.",
+    detail: "Azure API Management between the agents and the hub's MCP servers. Only the five MCP routes are exposed; each consumer has its own revocable subscription key, and the agents never hold the hub's own key; every tool call is traced with its tool name. Foundry follows the connection's target, so the agents themselves needed no change.",
     where: "infra/apim, infra/create_hub_connection.ps1",
     rows: [{ h: 22, nodes: [chip("g2a", "MCP routes allow-listed"), chip("g2b", "per-tool traces"), chip("g2c", "revocable key per consumer"), chip("g2d", "agents never hold the hub key")] }],
   },
   {
     id: "hub", title: "Tools hub · container app · MCP servers and journey harnesses", tone: "hub",
-    detail: "One container app with four MCP servers (data tool, agent bridge, case context, report studio) and the code that runs the Analysis and Research journeys as harnesses. State (cases, runs, the ledger) is in memory and can be exported and restored.",
+    detail: "One container app with five MCP servers (data tool, SharePoint tools, agent bridge, case context, report studio) and the code that runs the Analysis and Research journeys as harnesses. State (cases, runs, the ledger) is in memory and can be exported and restored.",
     where: "hub/",
     rows: [
       { h: 70, nodes: [
@@ -169,8 +171,10 @@ export const MAIN: Panel[] = [
           detail: "The shared record of a request: the confirmed request, the findings specialists saved, the reports published. One case per request.", where: "hub/case_context.py" },
         { id: "studio", title: "Report studio", lines: ["charts · Word and HTML · audit"], tone: "hubBox", flex: 1.3,
           detail: "The tools the report team works through: evidence, calculations, section drafts, the number audit, charts, and the Word and HTML renderers with an evidence appendix.", where: "hub/studio/" },
-        { id: "datatool", title: "Data tool", lines: ["question in · rows and SQL out · to Genie"], tone: "hubBox", flex: 1.7,
+        { id: "datatool", title: "Data tool", lines: ["question in · rows and SQL out · to Genie"], tone: "hubBox", flex: 1.4,
           detail: "Hands a question to the configured backend (a Databricks Genie space, your own function, or a stub) and registers the result in the ledger. Switching to the data gateway is a setting (DATABRICKS_AUTH=apim).", where: "hub/genie_gateway.py, hub/backends/" },
+        { id: "sptool", title: "SharePoint tools", lines: ["search and read files · tables or passages"], tone: "hubBox", flex: 1.4, v2: true, badge: "NEW",
+          detail: "Two MCP tools: search_sharepoint finds files in the connected library and read_sharepoint_file reads one (a spreadsheet or CSV as a table, optionally filtered; a document as passages). Each read is stored in the evidence ledger like a Databricks result, so the analytics engine can compute on it and the number audit can trace figures quoted from it. Backends: Microsoft Graph, or a folder standing in for a library.", where: "hub/sharepoint_gateway.py, hub/sharepoint/" },
       ] },
     ],
   },
@@ -181,9 +185,9 @@ export const MAIN: Panel[] = [
     rows: [{ h: 22, nodes: [chip("g3a", "Genie routes only"), chip("g3b", "one space allowed"), chip("g3c", "question rate limit"), chip("g3d", "API Management's own identity")] }],
   },
   {
-    id: "dbx", title: "Data platform · Azure Databricks", tone: "dbx",
-    detail: "Where the data lives and the SQL runs. The data layer is pluggable: a trimmed Genie space is the default, but the hub's data tool accepts any backend.",
-    where: "integrations/genie/",
+    id: "dbx", title: "Data sources · Azure Databricks · SharePoint", tone: "dbx",
+    detail: "Where the data lives. The data layer is pluggable: a trimmed Genie space on Databricks is the default source, SharePoint is a second source for what the data space does not hold (plans, calendars, price lists, policies), and the hub's data tool accepts any backend.",
+    where: "integrations/genie/, docs/SHAREPOINT.md",
     rows: [
       { h: 72, nodes: [
         { id: "genie", title: "Genie space · trimmed", lines: ["natural language to SQL · read only"], tone: "dbxBox",
@@ -196,6 +200,10 @@ export const MAIN: Panel[] = [
       { h: 46, nodes: [
         { id: "pricing", title: "Pricing engine and decision log", lines: ["demand model · optimiser · rules → published as tables Genie can read"], tone: "dbxBox", planned: true,
           detail: "A separate workstream: the demand model, optimiser and rules check run as Databricks jobs and publish plans and decisions as tables. The assistant only reads what they publish." },
+      ] },
+      { h: 52, nodes: [
+        { id: "spsite", title: "SharePoint document library · Microsoft 365", lines: ["plans · calendars · price lists · policies · read through Microsoft Graph, read only"], tone: "dbxBox", v2: true, badge: "NEW",
+          detail: "Croma's SharePoint library, read through Microsoft Graph with the hub's managed identity (Sites.Selected: read access to one site). Today the hub calls Graph directly, with no gateway in between; routing it through API Management as the Databricks calls are is a production step.", where: "docs/SHAREPOINT.md" },
       ] },
     ],
   },
@@ -213,7 +221,7 @@ export const FLOWS: Flow[] = [
   { from: "api", to: "foundry", n: 4, label: "CX agent: plan check, then the right journey" },
   { from: "foundry", to: "g2", n: 5, label: "tool calls (MCP) into the hub" },
   { from: "g2", to: "hub" },
-  { from: "hub", to: "g3", n: 6, label: "governed question to Genie" },
+  { from: "hub", to: "g3", n: 6, label: "governed questions to Genie · files from SharePoint" },
   { from: "g3", to: "dbx" },
   { from: "croma", to: "dbx", label: "daily data", dashed: true, heads: "to", x: MAIN_X + 140 },
 ];

@@ -3,6 +3,7 @@ files, with no tenant access. The files are found and read exactly as the Graph 
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 from pathlib import Path
 
@@ -12,16 +13,19 @@ from sharepoint.base import SharePointError
 
 class FolderBackend:
     label = "folder"
+    MANIFEST = "_modified.json"  # optional: {"relative/path.xlsx": "2026-09-02"}: the modified dates to report, instead of the files' own (which are the day they were copied)
 
     def __init__(self, root: Path, site: str = "Croma merchandising library (sample)"):
         self.root, self.site = Path(root).resolve(), site
         self._text: dict[tuple[str, float], str] = {}
+        manifest = self.root / self.MANIFEST
+        self._modified: dict[str, str] = json.loads(manifest.read_text(encoding="utf-8")) if manifest.is_file() else {}
 
     def _entry(self, path: Path) -> dict:
         rel = path.relative_to(self.root).as_posix()
         st = path.stat()
-        return {"id": rel, "name": path.name, "path": rel, "site": self.site, "modified": dt.datetime.fromtimestamp(st.st_mtime).date().isoformat(), "size": st.st_size,
-                "url": f"folder://{rel}", "kind": parse.kind_of(path.name)}
+        return {"id": rel, "name": path.name, "path": rel, "site": self.site, "modified": self._modified.get(rel) or dt.datetime.fromtimestamp(st.st_mtime).date().isoformat(),
+                "size": st.st_size, "url": f"folder://{rel}", "kind": parse.kind_of(path.name)}
 
     def _files(self) -> list[Path]:
         if not self.root.is_dir():

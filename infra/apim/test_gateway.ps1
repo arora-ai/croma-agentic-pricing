@@ -6,7 +6,7 @@
   FRONT   no key -> 401; a key or an Entra token -> the chat API gets the caller's identity and forged identity headers are ignored; two Entra identities
           are kept apart (conversations, memory scopes); streaming is not buffered (synthetic stream and a real agent turn); rate limit -> 429;
           the chat container refuses direct calls that are not signed with the gateway key.
-  TOOLS   tools/list and one harmless tools/call on each of the four MCP endpoints; the hub key alone is not enough; the hub's other routes are not exposed.
+  TOOLS   tools/list and one harmless tools/call on each of the five MCP endpoints; the hub key alone is not enough; the hub's other routes are not exposed.
   DATA    the Genie allow-list, the space check, the question rate limit, and a real Genie question through the hub's own backend in apim mode.
   Needs .apim.env (deploy_apim.ps1), .env (for the hub key, used only to prove it is refused) and infra/config.ps1 (the Genie space id).
   The real agent turn and the Genie questions each cost a little model or warehouse time: -SkipChatTurn and -SkipGenie leave them out.
@@ -228,7 +228,7 @@ if ($Only -in "all", "tools") {
     Section "TOOL gateway: $tools"
     $toolKey = @("-H", "x-api-key: $($e['APIM_TOOLS_KEY'])", "-H", "Content-Type: application/json", "-H", "Accept: application/json, text/event-stream")
     $list = Write-Body "rpc-list.json" '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
-    foreach ($ep in "genie", "agents", "context", "studio") {
+    foreach ($ep in "genie", "sharepoint", "agents", "context", "studio") {
         $r = Invoke-Http ($toolKey + @("--data-binary", "@$list", "$tools/$ep/mcp"))
         $names = @([regex]::Matches($r.Body, '"name":"([a-z_]+)"') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
         Check "tools/list on /$ep/mcp" ($r.Status -eq 200 -and $names.Count -ge 1) ("HTTP $($r.Status), $($names.Count) tools: " + (($names | Select-Object -First 4) -join ", ") + $(if ($names.Count -gt 4) { ", ..." }))
@@ -236,7 +236,8 @@ if ($Only -in "all", "tools") {
     $calls = @(
         @{ ep = "agents"; label = "wait_for_agent (unknown job)"; body = '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"wait_for_agent","arguments":{"job_id":"J-gateway-test"}}}'; expect = "unknown job" },
         @{ ep = "context"; label = "get_case (unknown case)"; body = '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_case","arguments":{"case_id":"C-gateway-test"}}}'; expect = "Unknown case_id" },
-        @{ ep = "studio"; label = "get_report_playbook"; body = '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_report_playbook","arguments":{}}}'; expect = "playbook" }
+        @{ ep = "studio"; label = "get_report_playbook"; body = '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_report_playbook","arguments":{}}}'; expect = "playbook" },
+        @{ ep = "sharepoint"; label = "search_sharepoint (a list of the library, or a clear 'switched off')"; body = '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"search_sharepoint","arguments":{"query":"","conversation_id":"C-gateway-test"}}}'; expect = "backend" }
     )
     foreach ($c in $calls) {
         $r = Invoke-Http ($toolKey + @("--data-binary", "@$(Write-Body 'rpc-call.json' $c.body)", "$tools/$($c.ep)/mcp"))

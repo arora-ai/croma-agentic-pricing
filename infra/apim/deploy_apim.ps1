@@ -104,6 +104,11 @@ $hubKey = $envFile["HUB_API_KEY"]
 if (-not $hubUrl -or -not $hubKey) { throw ".env must contain HUB_URL and HUB_API_KEY." }
 $g = $Cfg.Genie
 if (-not $g.DatabricksHost -or -not $g.SpaceId) { throw "infra/config.ps1: Genie.DatabricksHost and Genie.SpaceId are needed for the data gateway." }
+# The data gateway's backend is the real Databricks workspace. Once the hub uses the gateway (Genie.AuthMode = "apim"), Genie.DatabricksHost is the gateway's own URL,
+# so the workspace URL is given separately in Apim.DatabricksUrl. Without it, the gateway would be pointed at itself and every Genie call would fail with a 401.
+$databricksUrl = if ($a -and $a.DatabricksUrl) { $a.DatabricksUrl } else { $g.DatabricksHost }
+$databricksUrl = $databricksUrl.TrimEnd("/")
+if ($databricksUrl -match '\.azure-api\.net') { throw "The Databricks URL for the data gateway is an API Management address ($databricksUrl): the gateway would call itself. Set `$Cfg.Apim.DatabricksUrl in infra/config.ps1 to the workspace URL (https://adb-<workspace-id>.<n>.azuredatabricks.net)." }
 
 az account set --subscription $Cfg.Subscription
 $tenantId = Invoke-Az account show --query tenantId -o tsv
@@ -187,7 +192,7 @@ if ($EnableJwt) {
 $apimExists = [bool](az apim show -n $ApimName -g $ResourceGroup --query name -o tsv 2>$null)
 $deployEnv = @{
     APIM_PREFIX = $prefix; APIM_LOCATION = $Location; APIM_NAME = $ApimName; APIM_SKU = $Sku; APIM_PUBLISHER_EMAIL = $me
-    APIM_CHAT_BACKEND_URL = $chatUrl; APIM_HUB_BACKEND_URL = $hubUrl; APIM_DATABRICKS_URL = $g.DatabricksHost.TrimEnd("/"); APIM_GENIE_SPACE_ID = $g.SpaceId
+    APIM_CHAT_BACKEND_URL = $chatUrl; APIM_HUB_BACKEND_URL = $hubUrl; APIM_DATABRICKS_URL = $databricksUrl; APIM_GENIE_SPACE_ID = $g.SpaceId
     APIM_HUB_API_KEY = $hubKey; APIM_GATEWAY_KEY = $gatewayKey
     APIM_JWT_ENABLED = "$([bool]$EnableJwt)".ToLower(); APIM_ENTRA_TENANT_ID = $(if ($EntraTenantId) { $EntraTenantId } else { $tenantId })
     APIM_ENTRA_AUDIENCE = $(if ($EntraAudience) { $EntraAudience } else { "api://not-configured" }); APIM_ENTRA_AUDIENCE_ALT = $(if ($EntraAudienceAlt) { $EntraAudienceAlt } else { "api://not-configured" })
@@ -261,7 +266,7 @@ Write-Host "APIM identity : application id $apimAppId (give it access to the Gen
 if ($GrantDatabricks) {
     if (-not $WarehouseId -or -not $Catalog) { throw "-GrantDatabricks needs -WarehouseId and -Catalog." }
     if (-not $Python) { $Python = if (Test-Path "$root\.venv\Scripts\python.exe") { "$root\.venv\Scripts\python.exe" } else { "python" } }
-    & $Python "$root\integrations\genie\grant_hub_access.py" --application-id $apimAppId --host $g.DatabricksHost --warehouse-id $WarehouseId --space-id $g.SpaceId --catalog $Catalog --name $ApimName
+    & $Python "$root\integrations\genie\grant_hub_access.py" --application-id $apimAppId --host $databricksUrl --warehouse-id $WarehouseId --space-id $g.SpaceId --catalog $Catalog --name $ApimName
     if ($LASTEXITCODE) { throw "grant_hub_access.py failed" }
 }
 Write-Host "Done. Check it with: .\infra\apim\test_gateway.ps1"

@@ -114,14 +114,16 @@ class MemoryRequest(BaseModel):
 async def health(who: Identity = Depends(require_identity)):
     async with httpx.AsyncClient(timeout=10) as http:
         genie_backend = "unknown"
+        sharepoint_backend = "off"
         try:
             r = await http.get(f"{_env()['HUB_URL']}/healthz")
             hub = r.json().get("status") == "ok"
             genie_backend = r.json().get("genie_backend", "mock")
+            sharepoint_backend = r.json().get("sharepoint_backend", "off")
         except Exception:
             hub = False
     return {"hub": hub, "hub_url": _env()["HUB_URL"], "project": _env()["FOUNDRY_PROJECT_ENDPOINT"].rsplit("/", 1)[-1], "cx_agent": CX_AGENT,
-            "memory_store": MEMORY_STORE, "memory_scope": memory_scope(who, MEMORY_SCOPE), "genie_backend": genie_backend}
+            "memory_store": MEMORY_STORE, "memory_scope": memory_scope(who, MEMORY_SCOPE), "genie_backend": genie_backend, "sharepoint_backend": sharepoint_backend}
 
 
 @app.get("/api/me")

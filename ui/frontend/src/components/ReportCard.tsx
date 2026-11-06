@@ -119,7 +119,7 @@ export function ReportCard({ caseId, n }: { caseId: string; n?: number }) {
 
 const STAGES: { key: string; label: string; match: (c: Call) => boolean }[] = [
   { key: "plan", label: "Plan", match: (c) => c.node === "planner" && c.kind === "agent" },
-  { key: "gather", label: "Gather evidence", match: (c) => c.node === "genie" },
+  { key: "gather", label: "Gather evidence", match: (c) => c.node === "genie" || c.node === "files" },
   { key: "think", label: "Find drivers", match: (c) => c.node === "insight" && c.kind === "agent" },
   { key: "act", label: "Recommend", match: (c) => c.node === "strategist" && c.kind === "agent" },
   { key: "write", label: "Write", match: (c) => c.node === "writer" && c.kind === "agent" },

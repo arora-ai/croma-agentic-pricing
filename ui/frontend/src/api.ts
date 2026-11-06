@@ -73,7 +73,7 @@ export async function fetchRuns(caseId: string): Promise<HarnessRun[]> {
 
 export const reportUrl = (caseId: string, n: number, ext: "docx" | "html") => `/api/report/${caseId}/${n}/${ext}`;
 
-export async function fetchHealth(): Promise<{ hub: boolean; project: string; cx_agent: string; memory_scope: string; genie_backend?: string } | null> {
+export async function fetchHealth(): Promise<{ hub: boolean; project: string; cx_agent: string; memory_scope: string; genie_backend?: string; sharepoint_backend?: string } | null> {
   try {
     const res = await apiFetch("/api/health");
     return res.ok ? res.json() : null;

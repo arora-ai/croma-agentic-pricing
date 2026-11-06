@@ -75,7 +75,7 @@ export default function App() {
               </div>
               <div className="card network">
                 <div className="card-title">Agent network<span>{state.health?.project ?? ""}</span></div>
-                <Boundary label="The network view"><Topology calls={latest} running={live} genieBackend={state.health?.genie_backend} stages={latestStages} /></Boundary>
+                <Boundary label="The network view"><Topology calls={latest} running={live} genieBackend={state.health?.genie_backend} sharepointBackend={state.health?.sharepoint_backend} stages={latestStages} /></Boundary>
               </div>
               <Telemetry state={state} tab={tab} setTab={setTab} />
             </aside>

@@ -5,6 +5,7 @@ const POST: NodeKey[] = ["lookup", "research", "analysis", "reporting"];
 export function nodeOf(e: HubEvent): NodeKey {
   if (e.type === "agent_start" || e.type === "agent_end") return (e.agent as NodeKey) ?? "cx";
   if (e.server === "genie") return "genie";
+  if (e.server === "sharepoint") return "files";
   if (e.server === "studio") return "studio";
   return e.server === "memory" ? "memory" : "context";
 }
@@ -13,8 +14,8 @@ function depthOf(node: NodeKey, caller: string): number {
   if (node === "cx" || node === "memory") return node === "cx" ? 0 : 1;
   if (POST.includes(node)) return 1;
   if (TEAM.includes(node) || WORKERS.includes(node)) return 2;
-  if (node === "data") return caller === "reporting" || TEAM.includes(caller as NodeKey) ? 3 : 2;
-  if (node === "genie") return 4;
+  if (node === "data" || node === "sharepoint") return caller === "reporting" || TEAM.includes(caller as NodeKey) ? 3 : 2;
+  if (node === "genie" || node === "files") return 4;
   if (node === "studio") return TEAM.includes(caller as NodeKey) ? 3 : 2;
   // case context tools sit one level under whoever called them
   if (caller === "cx") return 1;
@@ -73,6 +74,7 @@ export const HARNESS_STEPS: { key: string; label: string; stages: string[] }[] =
 export function callTitle(c: Call): string {
   if (c.kind === "agent") return c.node === "cx" ? "CX agent" : `${c.node[0].toUpperCase()}${c.node.slice(1)} agent`;
   if (c.node === "genie") return "Genie query";
+  if (c.node === "files") return c.tool === "search_sharepoint" ? "SharePoint search" : "SharePoint read";
   if (c.node === "memory") return "Memory recall";
   if (c.node === "studio") return `Studio: ${(c.tool ?? "").replace(/_/g, " ")}`;
   return c.tool ? c.tool.replace(/_/g, " ") : "Case context";
@@ -81,6 +83,7 @@ export function callTitle(c: Call): string {
 export function callSummary(c: Call): string {
   if (c.kind === "agent") return (c.ask ?? "").replace(/^\[case_id: [^\]]+\]\s*/, "");
   if (c.node === "genie") return c.args?.query ?? c.detail?.question ?? "";
+  if (c.node === "files") return c.args?.query ?? c.detail?.file ?? c.args?.file_id ?? "";
   if (c.node === "memory") return c.summary ?? "Searching your saved preferences";
   const a = c.args ?? {};
   if (c.node === "studio") return a.label ?? a.result_id ?? a.items?.[0]?.label ?? a.title ?? a.case_id ?? "";

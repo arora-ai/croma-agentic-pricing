@@ -53,4 +53,6 @@ $Cfg.Genie = @{
 #     Name               = "apim-croma2"                               # globally unique: <name>.azure-api.net
 #     Location           = "eastus2"                                   # default: the region of the Container Apps environment
 #     ChatApp            = "croma-chat-v2"                             # the container app that runs the chat API behind the front gateway
+#     DatabricksUrl      = "https://adb-<workspace-id>.<n>.azuredatabricks.net"   # the real workspace behind the data gateway. Needed once Genie.DatabricksHost is the
+#                                                                                  # gateway's own URL (Genie.AuthMode = "apim"); without it deploy_apim.ps1 refuses to run
 # }

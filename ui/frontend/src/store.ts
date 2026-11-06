@@ -13,7 +13,7 @@ export interface State {
   loading: boolean;
   caseId: string | null;
   memoryTick: number;
-  health: { hub: boolean; project: string; cx_agent: string; memory_scope: string; genie_backend?: string } | null;
+  health: { hub: boolean; project: string; cx_agent: string; memory_scope: string; genie_backend?: string; sharepoint_backend?: string } | null;
 }
 
 const initial: State = {

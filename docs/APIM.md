@@ -7,7 +7,7 @@ authenticated, rate limited and logged in one place, which is the "two controlle
 | Gateway | Path | What it is for |
 |---|---|---|
 | **Front** | browser or channel, then APIM, then the **chat API** (a container app), then the Foundry CX agent | Sign-in (Entra ID token or subscription key), per-user identity, throttling and quotas, streaming, request logging |
-| **Tool** | Foundry agents, then APIM, then the **hub** MCP endpoints | The hub's API key never leaves APIM, per-subscription limits, per-tool monitoring, only the four MCP paths are reachable |
+| **Tool** | Foundry agents, then APIM, then the **hub** MCP endpoints | The hub's API key never leaves APIM, per-subscription limits, per-tool monitoring, only the five MCP paths are reachable |
 | **Data tool** | the hub's Genie backend, then APIM, then **Databricks Genie** REST | APIM signs in to Databricks with its own managed identity, one Genie space only, an allow-list of three calls, limits |
 
 ```mermaid
@@ -201,7 +201,7 @@ In the web app, `src/auth.ts` is **active only when `VITE_ENTRA_CLIENT_ID` is se
 
 ## Switching the other two gateways on
 
-**Foundry agents to the tool gateway.** Point the four project connections at APIM and store the APIM subscription key in them:
+**Foundry agents to the tool gateway.** Point the five project connections at APIM and store the APIM subscription key in them:
 
 ```powershell
 .\infra\create_hub_connection.ps1 -Apim                  # the live connections now go through APIM (-Direct puts them back)
@@ -211,7 +211,7 @@ python infra\apim\probe_tool_gateway.py --server-url hub # a throwaway agent cal
 
 Agents already deployed need no change: Foundry calls the **connection's target**, not the `server_url` in the agent definition (verified: an agent whose tool still says the hub's URL reached the hub through APIM, with the APIM key, because its connection pointed at APIM). Setting `$Cfg.Apim.GatewayUrl` in `infra/config.ps1` makes `deploy_hub.ps1` do the same when it creates the connections.
 
-**Hub to the data gateway.** In `infra/config.ps1` set `Genie.AuthMode = "apim"` and `Genie.DatabricksHost` to the data gateway URL (`APIM_DATA_URL`), give APIM's identity access once, and redeploy the hub (it stores the key as a secret):
+**Hub to the data gateway.** In `infra/config.ps1` set `Genie.AuthMode = "apim"` and `Genie.DatabricksHost` to the data gateway URL (`APIM_DATA_URL`), **and set `Apim.DatabricksUrl` to the real workspace URL** (`deploy_apim.ps1` uses it as the gateway's backend; without it the gateway would be pointed at itself, so the script refuses to run), give APIM's identity access once, and redeploy the hub (it stores the key as a secret):
 
 ```powershell
 .\infra\apim\deploy_apim.ps1 -SkipChat -GrantDatabricks -WarehouseId <warehouse id> -Catalog <catalog>

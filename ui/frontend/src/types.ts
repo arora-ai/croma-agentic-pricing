@@ -1,5 +1,5 @@
 ﻿export type NodeKey =
-  | "cx" | "lookup" | "research" | "analysis" | "reporting" | "data" | "genie" | "context" | "memory"
+  | "cx" | "lookup" | "research" | "analysis" | "reporting" | "data" | "genie" | "sharepoint" | "files" | "context" | "memory"
   | "planner" | "insight" | "strategist" | "writer" | "reviewer" | "studio"
   | "scoper" | "analyst" | "critic";
 
@@ -83,11 +83,13 @@ export const NODES: Record<NodeKey, { label: string; sub: string; color: string 
   studio: { label: "Studio", sub: "Ledger", color: "#9d174d" },
   data: { label: "Data agent", sub: "Only door to data", color: "#b45309" },
   genie: { label: "Genie", sub: "Databricks", color: "#c2410c" },
+  sharepoint: { label: "SharePoint agent", sub: "Only door to files", color: "#0b6b6b" },
+  files: { label: "SharePoint", sub: "Document library", color: "#0e7490" },
   context: { label: "Case file", sub: "Shared findings", color: "#475569" },
   memory: { label: "Memory", sub: "Preferences", color: "#0e7490" },
 };
 
-export const AGENT_NODES: NodeKey[] = ["cx", "lookup", "research", "analysis", "reporting", "planner", "insight", "strategist", "writer", "reviewer", "data"];
+export const AGENT_NODES: NodeKey[] = ["cx", "lookup", "research", "analysis", "reporting", "planner", "insight", "strategist", "writer", "reviewer", "data", "sharepoint"];
 export const TEAM: NodeKey[] = ["planner", "insight", "strategist", "writer", "reviewer"];
 export const WORKERS: NodeKey[] = ["scoper", "analyst", "critic"];
 

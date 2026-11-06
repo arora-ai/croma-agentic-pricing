@@ -1,5 +1,5 @@
 <!--
-  TOOL GATEWAY: Foundry agents -> APIM -> the tools hub (MCP servers at /genie/mcp, /agents/mcp, /context/mcp, /studio/mcp).
+  TOOL GATEWAY: Foundry agents -> APIM -> the tools hub (MCP servers at /genie/mcp, /sharepoint/mcp, /agents/mcp, /context/mcp, /studio/mcp).
   Foundry holds an APIM subscription key in its project connection (a Custom Keys connection that sends it as the header x-api-key, which is this API's
   subscription key header). APIM has validated that key before this policy runs. The hub's own API key lives only in the named value hub-api-key.
 
@@ -8,7 +8,7 @@
        custom dimensions, so Application Insights can show calls per tool. The response body is never read: that would buffer it.
     3. Replaces x-api-key (the APIM subscription key) with the hub's key.
     4. Forwards to the hub with a 120 second timeout (Foundry cuts a tool call at 100 seconds anyway).
-  Only the four MCP paths exist as operations; the hub's other routes (/state, /trace, /events, /runs, /case, /report) get a 404 from APIM.
+  Only the five MCP paths exist as operations; the hub's other routes (/state, /trace, /events, /runs, /case, /report) get a 404 from APIM.
 -->
 <policies>
   <inbound>

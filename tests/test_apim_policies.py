@@ -67,9 +67,9 @@ def test_the_front_policy_strips_the_identity_headers_before_it_sets_them():
     assert "{{gateway-key}}" in text and "{{jwt-enabled}}" in text
 
 
-def test_the_tool_gateway_exposes_only_the_four_mcp_paths_and_reads_the_key_from_x_api_key():
+def test_the_tool_gateway_exposes_only_the_five_mcp_paths_and_reads_the_key_from_x_api_key():
     tools = section("// ================================================================ TOOL gateway", "// ================================================================ DATA")
-    assert re.search(r"toolEndpoints = \[ 'genie', 'agents', 'context', 'studio' \]", tools)
+    assert re.search(r"toolEndpoints = \[ 'genie', 'sharepoint', 'agents', 'context', 'studio' \]", tools)
     assert re.search(r"\[ 'POST', 'GET', 'DELETE' \]", tools) and "url: '/${endpoint}/mcp'" in tools
     assert re.search(r"subscriptionKeyParameterNames: \{\s*header: 'x-api-key'", tools)
     assert 'name="x-api-key" exists-action="override"' in POLICIES["tools-api.xml"] and "{{hub-api-key}}" in POLICIES["tools-api.xml"]
