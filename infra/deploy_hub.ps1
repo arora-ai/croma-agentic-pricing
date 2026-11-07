@@ -25,7 +25,7 @@ if ($g.SpaceId) { $settings += "GENIE_SPACE_ID=$($g.SpaceId)" }
 if ($g.AuthMode) { $settings += "DATABRICKS_AUTH=$($g.AuthMode)" }
 if ($g.CustomBackend) { $settings += "CUSTOM_BACKEND=$($g.CustomBackend)" }
 if ($g.ToolDescription) { $settings += "GENIE_TOOL_DESCRIPTION=$($g.ToolDescription)" }
-# SharePoint, the second data source (docs/SHAREPOINT.md). Off unless $Cfg.SharePoint.Backend is "graph" or "folder".
+# SharePoint, the second data source (docs/SHAREPOINT.md). Off unless $Cfg.SharePoint.Backend is "graph", "simulated" or "folder".
 $sp = $Cfg.SharePoint
 if ($sp -and $sp.Backend -and $sp.Backend -ne "off") {
     $settings += "SHAREPOINT_BACKEND=$($sp.Backend)"

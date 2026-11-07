@@ -144,7 +144,7 @@ export function Topology({ calls, running, genieBackend, sharepointBackend, stag
             <rect className="box" width={w} height={H} rx={12} />
             <circle className="dot" cx={15} cy={H / 2} r={4.5} />
             <text className="label" x={28} y={H / 2 - 3}>{NODES[k].label}</text>
-            <text className="sub" x={28} y={H / 2 + 12}>{open.get(k) ? `${harness ? stageLabel(k) ?? st : st}…` : k === "genie" ? ({ databricks: "Databricks", custom: "Custom", stub: "Not connected" } as Record<string, string>)[genieBackend ?? ""] ?? "Data" : k === "files" ? ({ graph: "SharePoint", folder: "Sample library", off: "Not connected" } as Record<string, string>)[sharepointBackend ?? ""] ?? "Library" : NODES[k].sub.split(" · ")[0]}</text>
+            <text className="sub" x={28} y={H / 2 + 12}>{open.get(k) ? `${harness ? stageLabel(k) ?? st : st}…` : k === "genie" ? ({ databricks: "Databricks", custom: "Custom", stub: "Not connected" } as Record<string, string>)[genieBackend ?? ""] ?? "Data" : k === "files" ? ({ graph: "SharePoint", simulated: "Simulated site", folder: "Sample library", off: "Not connected" } as Record<string, string>)[sharepointBackend ?? ""] ?? "Library" : NODES[k].sub.split(" · ")[0]}</text>
             {harness && WORKERS.map((wk, i) => {
               const key = `${k}>${wk}`;
               return (

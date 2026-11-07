@@ -99,7 +99,7 @@ class ApiKey:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope["path"] != "/healthz":
+        if scope["type"] == "http" and scope["path"] != "/healthz" and not (SIMULATED and scope["path"].startswith("/graph-sim/")):  # the simulator checks its own bearer token
             supplied = dict(scope["headers"]).get(b"x-api-key", b"").decode()
             if not API_KEY or not hmac.compare_digest(supplied, API_KEY):
                 await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
@@ -107,17 +107,22 @@ class ApiKey:
         await self.app(scope, receive, send)
 
 
-app = ApiKey(Starlette(
-    routes=[Route("/healthz", healthz), Route("/trace", trace), Route("/events", events), Route("/case/{case_id}", case), Route("/runs/{case_id}", runs),
-            Route("/report/{case_id}/{n:int}.{ext}", report_file),
-            Route("/state/{case_id}", state_export),
-            Route("/state", state_import, methods=["POST"]),
-            Mount("/genie", app=genie_gateway.mcp.streamable_http_app()),
-            Mount("/sharepoint", app=sharepoint_gateway.mcp.streamable_http_app()),
-            Mount("/agents", app=agent_bridge.mcp.streamable_http_app()),
-            Mount("/context", app=case_context.mcp.streamable_http_app()),
-            Mount("/studio", app=studio_server.mcp.streamable_http_app())],
-    lifespan=lifespan))
+SIMULATED = SHAREPOINT_BACKEND == "simulated"
+ROUTES = [Route("/healthz", healthz), Route("/trace", trace), Route("/events", events), Route("/case/{case_id}", case), Route("/runs/{case_id}", runs),
+          Route("/report/{case_id}/{n:int}.{ext}", report_file),
+          Route("/state/{case_id}", state_export),
+          Route("/state", state_import, methods=["POST"]),
+          Mount("/genie", app=genie_gateway.mcp.streamable_http_app()),
+          Mount("/sharepoint", app=sharepoint_gateway.mcp.streamable_http_app()),
+          Mount("/agents", app=agent_bridge.mcp.streamable_http_app()),
+          Mount("/context", app=case_context.mcp.streamable_http_app()),
+          Mount("/studio", app=studio_server.mcp.streamable_http_app())]
+if SIMULATED:
+    from sharepoint import mock_graph
+
+    ROUTES.append(Mount(mock_graph.MOUNT, app=mock_graph.app))
+
+app = ApiKey(Starlette(routes=ROUTES, lifespan=lifespan))
 
 if __name__ == "__main__":
     import os

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from settings import SHAREPOINT_BACKEND, SHAREPOINT_FOLDER
+from settings import SHAREPOINT_BACKEND, SHAREPOINT_FOLDER, SHAREPOINT_GRAPH_URL
 from sharepoint.base import Backend, SharePointError
 
 SAMPLE_LIBRARY = Path(__file__).parent / "sample_library"
@@ -17,6 +17,11 @@ def get_backend() -> Backend:
             from sharepoint.graph import GraphBackend
 
             _backend = GraphBackend()
+        elif SHAREPOINT_BACKEND == "simulated":
+            from sharepoint import mock_graph
+            from sharepoint.graph import GraphBackend
+
+            _backend = GraphBackend(mock_graph.SITE_URL, graph_url=SHAREPOINT_GRAPH_URL or mock_graph.local_url(), auth="simulated")
         elif SHAREPOINT_BACKEND == "folder":
             from sharepoint.folder import FolderBackend
 

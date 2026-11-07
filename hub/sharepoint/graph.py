@@ -13,7 +13,7 @@ from urllib.parse import quote, urlparse
 
 import httpx
 
-from settings import (SHAREPOINT_AUTH, SHAREPOINT_LIBRARY, SHAREPOINT_MAX_FILE_MB, SHAREPOINT_SITE_URL, SHAREPOINT_TIMEOUT_S, SHAREPOINT_TOKEN)
+from settings import (SHAREPOINT_AUTH, SHAREPOINT_GRAPH_URL, SHAREPOINT_LIBRARY, SHAREPOINT_MAX_FILE_MB, SHAREPOINT_SITE_URL, SHAREPOINT_TIMEOUT_S, SHAREPOINT_TOKEN)
 from sharepoint import parse
 from sharepoint.base import SharePointError
 
@@ -25,8 +25,9 @@ SELECT = "id,name,webUrl,size,lastModifiedDateTime,file,folder,parentReference"
 class GraphBackend:
     label = "graph"
 
-    def __init__(self, site_url: str = "", library: str = "", client: httpx.AsyncClient | None = None):
+    def __init__(self, site_url: str = "", library: str = "", client: httpx.AsyncClient | None = None, graph_url: str = "", auth: str = ""):
         self.site_url, self.library = site_url or SHAREPOINT_SITE_URL, library or SHAREPOINT_LIBRARY
+        self.graph, self._auth = (graph_url or SHAREPOINT_GRAPH_URL or GRAPH).rstrip("/"), auth  # a different graph_url is the simulator (sharepoint/mock_graph.py)
         if not self.site_url:
             raise SharePointError("SHAREPOINT_SITE_URL is not set: give the SharePoint site to read (https://<tenant>.sharepoint.com/sites/<site>)")
         self._client = client
@@ -37,6 +38,10 @@ class GraphBackend:
 
     # -- plumbing
     async def _bearer(self) -> str:
+        if self._auth == "simulated":
+            from sharepoint.mock_graph import TOKEN
+
+            return TOKEN
         if SHAREPOINT_AUTH == "token":
             if not SHAREPOINT_TOKEN:
                 raise SharePointError("SHAREPOINT_AUTH is token but SHAREPOINT_TOKEN is empty")
@@ -56,7 +61,7 @@ class GraphBackend:
         client = self._client or httpx.AsyncClient(timeout=SHAREPOINT_TIMEOUT_S, follow_redirects=True)
         try:
             for attempt in range(3):
-                resp = await client.get(url if url.startswith("http") else f"{GRAPH}{url}", params=params, headers={"Authorization": f"Bearer {await self._bearer()}"})
+                resp = await client.get(url if url.startswith("http") else f"{self.graph}{url}", params=params, headers={"Authorization": f"Bearer {await self._bearer()}"})
                 if resp.status_code in (429, 503) and attempt < 2:
                     await asyncio.sleep(min(float(resp.headers.get("Retry-After", "2")), 10))
                     continue
@@ -97,8 +102,8 @@ class GraphBackend:
         kind = parse.kind_of(item.get("name", ""))
         if "file" not in item or not kind:
             return None
-        parent = (item.get("parentReference") or {}).get("path", "")
-        return {"id": item["id"], "name": item["name"], "path": re.sub(r"^/drives?/[^/]+/root:?", "", parent).strip("/") + ("/" if parent else "") + item["name"],
+        folder = re.sub(r"^/drives?/[^/]+/root:?", "", (item.get("parentReference") or {}).get("path", "")).strip("/")
+        return {"id": item["id"], "name": item["name"], "path": (folder + "/" if folder else "") + item["name"],
                 "site": (self._site or {}).get("displayName", ""), "modified": (item.get("lastModifiedDateTime") or "")[:10], "size": int(item.get("size") or 0),
                 "url": item.get("webUrl", ""), "kind": kind}
 

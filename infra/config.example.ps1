@@ -32,6 +32,7 @@ $Cfg.Genie = @{
 
 # Optional: SharePoint as a second data source for the Analysis and Research journeys (docs/SHAREPOINT.md). Leave this out to run without it.
 #   Backend: "graph"   reads one document library of a SharePoint site through Microsoft Graph (set SiteUrl; the hub's managed identity needs read access to that site)
+#            "simulated" the same Graph connector reading a Microsoft Graph simulator that the hub hosts (a fictional site on contoso.sharepoint.com): a showcase with no tenant
 #            "folder"  reads a folder bundled with the hub as if it were a library: for trying the connector on synthetic files
 #            "off"     (the default) SharePoint is not offered to the agents
 # The agents are told what the library holds by the "sharepoint" block of config/data_profile.json (set "enabled" there as well), and deploy_agents.py must be re-run.

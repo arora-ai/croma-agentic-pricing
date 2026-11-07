@@ -31,7 +31,8 @@ CUSTOM_BACKEND = os.getenv("CUSTOM_BACKEND", "")
 # SharePoint, the second data source (see docs/SHAREPOINT.md). Off by default: the system then behaves exactly as before, and the Scoper is not told about SharePoint.
 #   graph   reads a document library of a SharePoint site through Microsoft Graph (the hub's managed identity needs read access to that site)
 #   folder  reads a local folder as if it were a document library: for tests and demos on synthetic files
-SHAREPOINT_BACKEND = os.getenv("SHAREPOINT_BACKEND", "off")  # off | folder | graph
+SHAREPOINT_BACKEND = os.getenv("SHAREPOINT_BACKEND", "off")  # off | folder | graph | simulated (the graph backend against a Microsoft Graph simulator the hub hosts)
+SHAREPOINT_GRAPH_URL = os.getenv("SHAREPOINT_GRAPH_URL", "")  # graph backend: the Graph endpoint (default https://graph.microsoft.com/v1.0; simulated: the hub's own simulator)
 SHAREPOINT_FOLDER = os.getenv("SHAREPOINT_FOLDER", "")  # folder backend: the directory to read (default: the sample library that ships with the hub)
 SHAREPOINT_SITE_URL = os.getenv("SHAREPOINT_SITE_URL", "")  # graph backend: https://<tenant>.sharepoint.com/sites/<site>
 SHAREPOINT_LIBRARY = os.getenv("SHAREPOINT_LIBRARY", "")  # graph backend: the document library to read (default: the site's default library)

@@ -62,6 +62,7 @@ SharePoint needs four things: a backend on the hub, a description of the library
    | Backend | Reads | Use it for |
    |---|---|---|
    | `graph` | One document library of a SharePoint site, through Microsoft Graph, with the hub's managed identity | The real library (set `SiteUrl`, and `Library` if it is not the site's default) |
+   | `simulated` | The same Graph backend, reading a **Microsoft Graph simulator** the hub hosts (`/graph-sim`): a fictional SharePoint site on the reserved `contoso.sharepoint.com` domain with two document libraries | Showing and testing the real Graph code path (site lookup, library choice, search, item ids, redirect downloads, Graph's errors) with no tenant. Prefer it to `folder` for a showcase |
    | `folder` | A folder bundled with the hub (`hub/sharepoint/sample_library`, or `SHAREPOINT_FOLDER`) as if it were a library | Trying the whole path on synthetic files, with no tenant access |
    | `off` | Nothing | The default |
 
@@ -90,14 +91,28 @@ az rest --method POST --uri "https://graph.microsoft.com/v1.0/sites/<site id>/pe
 
 For a quick test from a laptop, `SHAREPOINT_AUTH=token` with `SHAREPOINT_TOKEN` set to a Graph access token (`az account get-access-token --resource https://graph.microsoft.com`) reads what the signed-in person can read.
 
-> **Not yet proven against a real tenant.** The Graph backend is tested against a mocked transport (search, fetch, the error cases, the bearer token) and the whole path has been run end to end on the folder backend. It has not been run against a real SharePoint site, and the access commands above have not been run in the Croma tenant: expect small differences, and treat the error messages (which say whether access, the site or the file is the problem) as the first place to look.
+> **Not yet proven against a real tenant.** The Graph backend is tested against a mocked transport and against the Graph simulator (below), and the whole path has been run end to end on the folder and simulated backends. It has not been run against a real SharePoint site, and the access commands above have not been run in the Croma tenant: expect small differences, and treat the error messages (which say whether access, the site or the file is the problem) as the first place to look.
+
+### The Graph simulator (`simulated`)
+
+With no SharePoint site to hand, `SHAREPOINT_BACKEND=simulated` runs the **unchanged Graph backend** against a simulator of the Graph calls it makes (`hub/sharepoint/mock_graph.py`, mounted on the hub at `/graph-sim/v1.0`). Only the base URL and the token differ from a tenant. It answers in Graph's shapes:
+
+* `GET /sites/{host}:/sites/{site}` and `/sites/{id}/drives` find the site and its libraries (`Documents`, the default, and an empty `Archive`, so choosing a library by name can be shown).
+* Folders and files are `driveItem`s: 34 character ids, `webUrl`, `createdBy` and `lastModifiedBy`, `eTag`, `parentReference` (`/drives/{id}/root:/Planning`), `file.mimeType`, `folder.childCount`; `$top`, `$select` and `@odata.nextLink` paging.
+* `root/search(q='...')` matches file names and what is inside the files, as the folder backend does.
+* `items/{id}/content` is a `302` to a short-lived, signed download URL that needs no bearer token, as in SharePoint. A forged or expired link is refused.
+* A missing or wrong bearer token gets `401 InvalidAuthenticationToken`, an unknown site or item `404 itemNotFound`, both in Graph's `error` format.
+
+The files are the sample library below, shown as a fictional site; every URL is on the reserved `contoso.sharepoint.com` domain, so none resolves to a real tenant. The simulator needs a bearer token: the hub uses a random one made at each start (so only the hub's own backend can read it), or `SHAREPOINT_SIM_TOKEN` if set. The hub's API key is not needed for `/graph-sim`, which is mounted only when the backend is `simulated`. `python hub/sharepoint/mock_graph.py` serves it alone (for curl). What it does not do: permissions, throttling, versions, lists or other sites. It shows the connector and the harnesses working over a Graph-shaped interface; it does not show that the Croma tenant's access works.
 
 ## Settings
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `SHAREPOINT_BACKEND` | `off` | `graph`, `folder` or `off` |
+| `SHAREPOINT_BACKEND` | `off` | `graph`, `simulated`, `folder` or `off` |
 | `SHAREPOINT_SITE_URL` | | `graph`: `https://<tenant>.sharepoint.com/sites/<site>` |
+| `SHAREPOINT_GRAPH_URL` | `https://graph.microsoft.com/v1.0` | `graph`: the Graph endpoint (`simulated`: the hub's own simulator, over loopback) |
+| `SHAREPOINT_SIM_TOKEN` | random for each start | `simulated`: the bearer token the simulator accepts |
 | `SHAREPOINT_LIBRARY` | the site's default library | `graph`: the document library to read |
 | `SHAREPOINT_AUTH` | `managed_identity` | `managed_identity` (also a service principal through the usual environment variables, or `az login` on a laptop) or `token` |
 | `SHAREPOINT_FOLDER` | the bundled sample library | `folder`: the directory to read |
